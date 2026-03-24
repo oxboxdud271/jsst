@@ -9,4 +9,5 @@ edition = "2021"
 uuid = { version = "1.22.0", features = ["serde", "v4"]}
 clap = { version = "4.0", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
+reqwest = { version = "0.13", features = ["json", "blocking"] }
 serde_json = "1.0"

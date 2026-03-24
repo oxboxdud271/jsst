@@ -5,6 +5,7 @@ use std::path::Path;
 pub mod args;
 pub mod commands;
 pub mod util;
+mod vault;
 
 fn main() {
     let cli = args::Cli::parse();

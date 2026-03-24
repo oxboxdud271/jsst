@@ -20,7 +20,7 @@ pub struct GlobalOpts {
     pub output: String,
 
     /// Vault Server
-    #[arg(short, long, default_value = "https://secrets.jdn-lab.com")]
+    #[arg(short, long, default_value = "https://vault.jdn-lab.com")]
     pub server: String,
 
     #[arg(short, long, global = true)]

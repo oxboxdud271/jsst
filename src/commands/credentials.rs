@@ -1,12 +1,14 @@
 use crate::args::GlobalOpts;
-use crate::util::get_epoch;
+use crate::util::{get_epoch};
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::error::Error;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+use crate::vault::VaultClient;
 
 #[derive(Args)]
 pub struct BootstrapArgs {
@@ -46,6 +48,7 @@ pub struct CredentialsCommandStruct {
 pub struct ConfigData {
     pub role_id: String,
     pub secret_id: String,
+    pub secret_id_accessor: String,
     pub expiration: u64,
     pub machine_uuid: Uuid,
     pub bootstrapped: bool,
@@ -89,12 +92,40 @@ impl CredentialsCommand {
         Ok(())
     }
 
+    fn bootstrap_get_role_id(&self, client: VaultClient, machine_id: Uuid) -> Result<String, Box<dyn Error>> {
+        println!("Creating / Updating App Role...");
+        let app_role = client.post(
+            &String::from(format!("/v1/auth/jsst/role/{}", machine_id)),
+            &json!({
+                "role_name": machine_id.to_string(),
+                "bind_secret_id": true,
+            })
+        )?;
+        if !app_role.status().is_success() {
+            return Err(app_role.text()?.as_str().into());
+        }
+
+        println!("Retrieving App Role ID...");
+        let role_id = client.get(
+            &String::from(format!("/auth/jsst/role/{}/role-id", machine_id)),
+        )?;
+        if !role_id.status().is_success() {
+            return Err(role_id.text()?.as_str().into());
+        }
+        let role_id_json: Value = role_id.json()?;
+        Ok(String::from(role_id_json["data"]["role_id"].as_str().unwrap()))
+    }
+
+    fn bootstrap_get_secret_id(&self, client: VaultClient, machine_id: Uuid) -> Result<String, Box<dyn Error>> {todo!()}
+
     fn bootstrap(&self, args: &BootstrapArgs) {
         let mut should_bootstrap = false;
         let mut bootstrap_success = true;
+        let mut machine_id = Uuid::new_v4();
         let c_time = get_epoch();
         match self.read_config() {
             Ok(c) => {
+                machine_id = c.machine_uuid;
                 if !c.bootstrapped {
                     should_bootstrap = true;
                 }
@@ -117,13 +148,28 @@ impl CredentialsCommand {
         if args.force {
             println!("New bootstrap forced with --force")
         }
-        let new_data = ConfigData {
+        let client = VaultClient::new(&self.opts.server.as_str());
+        let mut new_data = ConfigData {
             role_id: "".to_string(),
             secret_id: "".to_string(),
+            secret_id_accessor: "".to_string(),
             expiration: c_time + 100000,
-            machine_uuid: Uuid::new_v4(),
+            machine_uuid: machine_id,
             bootstrapped: true,
         };
+
+        // Process App Role
+        match self.bootstrap_get_role_id(client, machine_id) {
+            Ok(role_id) => {
+                new_data.role_id = role_id;
+            }
+            Err(e) => {
+                println!("Failed to bootstrap App Role: [{}]", e);
+                return;
+            }
+        }
+
+        // Write Config to Disk
         match self.write_config(&new_data) {
             Ok(_) => {
                 println!("Successfully wrote config to host");
