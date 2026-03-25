@@ -1,12 +1,10 @@
 use crate::args::GlobalOpts;
+use crate::commands::base::{CredentialConfigData, JSSTCommand};
 use crate::util::get_epoch;
 use crate::vault::{VaultClient, VaultClientBuilder};
-use crate::commands::base::{CredentialConfigData, JSSTCommand};
 use clap::{Args, Subcommand};
 use serde_json::json;
 use std::error::Error;
-use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -73,7 +71,11 @@ impl JSSTCommand<CredentialsCommandStruct> for CredentialsCommand {
     fn execute(commands: CredentialsCommandStruct, opts: GlobalOpts) -> CredentialsCommand {
         let output_dir = Path::new(&opts.output);
         let config_path = output_dir.join("credentials.json");
-        let cmd = Self{commands, opts, config_path};
+        let cmd = Self {
+            commands,
+            opts,
+            config_path,
+        };
         match &cmd.commands.command {
             CliCommandEnum::Bootstrap(a) => cmd.bootstrap(a),
             CliCommandEnum::Show => cmd.show(),
@@ -84,19 +86,6 @@ impl JSSTCommand<CredentialsCommandStruct> for CredentialsCommand {
 }
 
 impl CredentialsCommand {
-    fn read_config(&self) -> Result<CredentialConfigData, Box<dyn Error>> {
-        let file = fs::File::open(&self.config_path)?;
-        let reader = io::BufReader::new(file);
-        let json = serde_json::from_reader(reader)?;
-        Ok(json)
-    }
-
-    fn write_config(&self, cfg: &CredentialConfigData) -> Result<(), Box<dyn Error>> {
-        let json_string = serde_json::to_string_pretty(cfg)?;
-        fs::write(&self.config_path, json_string)?;
-        Ok(())
-    }
-
     // Host will not have permission to run this on its own
     fn get_role_id(
         &self,
@@ -193,7 +182,7 @@ impl CredentialsCommand {
     }
 
     fn write_config_to_disk(&self, cfg: &CredentialConfigData) -> Result<(), Box<dyn Error>> {
-        match self.write_config(&cfg) {
+        match Self::write_config(&self.config_path, &cfg) {
             Ok(_) => {
                 println!("Successfully wrote config to host");
                 Ok(())
@@ -219,7 +208,7 @@ impl CredentialsCommand {
         let mut should_bootstrap = false;
         let mut machine_id = Uuid::new_v4();
         let c_time = get_epoch();
-        match self.read_config() {
+        match Self::read_config::<CredentialConfigData>(&self.config_path) {
             Ok(c) => {
                 machine_id = c.machine_uuid;
                 should_bootstrap = self.refresh_needed(&c)
@@ -288,10 +277,7 @@ impl CredentialsCommand {
 
                 println!("Attempting login with new credentials...");
                 // Attempt login to test credentials and create entity info
-                match Self::login_to_vault(
-                    &self.opts.server,
-                    &new_data,
-                ) {
+                match Self::login_to_vault(&self.opts.server, &new_data) {
                     Ok(c) => c,
                     Err(e) => {
                         println!("{}", e);
@@ -329,16 +315,13 @@ impl CredentialsCommand {
 
     fn refresh(&self, force: bool) {
         let c_time = get_epoch();
-        match self.read_config() {
+        match Self::read_config(&self.config_path) {
             Ok(c) => {
                 if !self.refresh_needed(&c) && !force {
                     println!("Refresh not needed. Use --force to perform action anyway.");
                     return;
                 }
-                let app_role_client = match Self::login_to_vault(
-                    &self.opts.server,
-                    &c,
-                ) {
+                let app_role_client = match Self::login_to_vault(&self.opts.server, &c) {
                     Ok(c) => c,
                     Err(e) => {
                         println!("{}", e);

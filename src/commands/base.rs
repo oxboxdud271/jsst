@@ -1,9 +1,12 @@
-use std::error::Error;
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use crate::args::GlobalOpts;
 use crate::util::get_epoch;
 use crate::vault::{VaultClient, VaultClientBuilder};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use std::error::Error;
+use std::path::PathBuf;
+use std::{fs, io};
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CredentialConfigData {
@@ -18,12 +21,20 @@ pub struct CredentialConfigData {
     pub auth_mount: String,
 }
 
-
 pub trait JSSTCommand<C> {
     fn execute(commands: C, opts: GlobalOpts) -> Self;
 
-    fn read_credentials(path: &String) -> Result<CredentialConfigData, Box<dyn Error>> {
-        todo!()
+    fn read_config<T: DeserializeOwned>(path: &PathBuf) -> Result<T, Box<dyn Error>> {
+        let file = fs::File::open(path)?;
+        let reader = io::BufReader::new(file);
+        let json = serde_json::from_reader(reader)?;
+        Ok(json)
+    }
+
+    fn write_config<T: Serialize>(path: &PathBuf, cfg: &T) -> Result<(), Box<dyn Error>> {
+        let json_string = serde_json::to_string_pretty(cfg)?;
+        fs::write(path, json_string)?;
+        Ok(())
     }
 
     fn is_credentials_valid(cfg: &CredentialConfigData) -> bool {
@@ -50,7 +61,10 @@ pub trait JSSTCommand<C> {
         false
     }
 
-    fn login_to_vault(url: &String, cfg: &CredentialConfigData) -> Result<VaultClient, Box<dyn Error>> {
+    fn login_to_vault(
+        url: &String,
+        cfg: &CredentialConfigData,
+    ) -> Result<VaultClient, Box<dyn Error>> {
         let app_role_client_builder = VaultClientBuilder::new()
             .url(url)
             .auth_mount(&cfg.auth_mount)
@@ -69,11 +83,12 @@ pub trait JSSTCommand<C> {
     /// any errors to stdout.
     fn command_wrapper(
         cmd_self: &Self,
-        cred_path: &String,
+        jsst_path: &String,
         vault_url: &String,
-        cmd_inner: fn(&Self, client: &VaultClient) -> ())
-    {
-        match Self::read_credentials(cred_path) {
+        cmd_inner: fn(&Self, client: &VaultClient) -> (),
+    ) {
+        let jsst_path_buf = PathBuf::from(jsst_path);
+        match Self::read_config(&jsst_path_buf) {
             Ok(cfg) => {
                 if !Self::is_credentials_valid(&cfg) {
                     print!("Vault Credentials are invalid / expired. Re-run bootstrap.");
@@ -95,4 +110,3 @@ pub trait JSSTCommand<C> {
         }
     }
 }
-

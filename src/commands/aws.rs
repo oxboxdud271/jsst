@@ -1,14 +1,14 @@
-use clap::{Args, Subcommand};
 use crate::args::GlobalOpts;
-use crate::commands::base::{JSSTCommand};
+use crate::commands::base::JSSTCommand;
 use crate::vault::VaultClient;
+use clap::{Args, Subcommand};
 
 #[derive(Subcommand)]
 pub enum CliCommandEnum {
     /// Setup AWS Role in Vault
     Setup,
     /// Retrieve Temporary AWS Credentials
-    Retrieve
+    Retrieve,
 }
 
 #[derive(Args)]
@@ -17,7 +17,6 @@ pub struct AWSCommandStruct {
     pub command: CliCommandEnum,
 }
 
-
 pub struct AWSCommand {
     pub commands: AWSCommandStruct,
     pub opts: GlobalOpts,
@@ -25,7 +24,7 @@ pub struct AWSCommand {
 
 impl JSSTCommand<AWSCommandStruct> for AWSCommand {
     fn execute(commands: AWSCommandStruct, opts: GlobalOpts) -> Self {
-        let cmd = Self{commands, opts};
+        let cmd = Self { commands, opts };
         Self::command_wrapper(
             &cmd,
             &cmd.opts.output,
@@ -33,7 +32,7 @@ impl JSSTCommand<AWSCommandStruct> for AWSCommand {
             match &cmd.commands.command {
                 CliCommandEnum::Setup => Self::setup,
                 CliCommandEnum::Retrieve => Self::retrieve,
-            }
+            },
         );
         cmd
     }
