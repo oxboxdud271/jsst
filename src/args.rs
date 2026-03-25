@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand};
-
+use crate::commands::aws::AWSCommandStruct;
 use crate::commands::credentials::CredentialsCommandStruct;
 
 #[derive(Parser)]
@@ -62,4 +62,6 @@ pub enum PrimaryCommandEnum {
         #[command(subcommand)]
         command: BaseSubCommandEnum,
     },
+    /// Manage AWS Credentials
+    AWS(AWSCommandStruct)
 }

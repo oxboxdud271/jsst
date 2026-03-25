@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::fs;
 use std::path::Path;
+use crate::commands::base::JSSTCommand;
 
 pub mod args;
 pub mod commands;
@@ -24,11 +25,14 @@ fn main() {
 
     match cli.command {
         args::PrimaryCommandEnum::Credentials(commands) => {
-            commands::credentials::CredentialsCommand::new(commands, cli.global_opts).execute();
+            commands::credentials::CredentialsCommand::execute(commands, cli.global_opts);
         }
         args::PrimaryCommandEnum::GPGKey { .. } => {}
         args::PrimaryCommandEnum::Crypt { .. } => {}
         args::PrimaryCommandEnum::SSH { .. } => {}
-        args::PrimaryCommandEnum::Password { .. } => {}
+        args::PrimaryCommandEnum::Password { .. } => {},
+        args::PrimaryCommandEnum::AWS(commands) => {
+            commands::aws::AWSCommand::execute(commands, cli.global_opts);
+        }
     }
 }

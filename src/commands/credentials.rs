@@ -1,8 +1,8 @@
 use crate::args::GlobalOpts;
 use crate::util::get_epoch;
 use crate::vault::{VaultClient, VaultClientBuilder};
+use crate::commands::base::{CredentialConfigData, JSSTCommand};
 use clap::{Args, Subcommand};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::error::Error;
 use std::fs;
@@ -52,19 +52,6 @@ pub struct CredentialsCommandStruct {
     pub command: CliCommandEnum,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ConfigData {
-    pub role_id: String,
-    pub secret_id: String,
-    pub secret_id_accessor: String,
-    pub expiration: u64,
-    pub machine_uuid: Uuid,
-    pub bootstrapped: bool,
-    pub entity_id: String,
-    pub entity_name: String,
-    pub auth_mount: String,
-}
-
 pub struct CredentialsCommand {
     pub commands: CredentialsCommandStruct,
     pub opts: GlobalOpts,
@@ -82,33 +69,29 @@ struct EntityInfo {
     name: String,
 }
 
-impl CredentialsCommand {
-    pub fn new(commands: CredentialsCommandStruct, opts: GlobalOpts) -> CredentialsCommand {
+impl JSSTCommand<CredentialsCommandStruct> for CredentialsCommand {
+    fn execute(commands: CredentialsCommandStruct, opts: GlobalOpts) -> CredentialsCommand {
         let output_dir = Path::new(&opts.output);
         let config_path = output_dir.join("credentials.json");
-        CredentialsCommand {
-            commands,
-            opts,
-            config_path,
+        let cmd = Self{commands, opts, config_path};
+        match &cmd.commands.command {
+            CliCommandEnum::Bootstrap(a) => cmd.bootstrap(a),
+            CliCommandEnum::Show => cmd.show(),
+            CliCommandEnum::Refresh(a) => cmd.refresh(a.force),
         }
+        cmd
     }
+}
 
-    pub fn execute(&self) {
-        match &self.commands.command {
-            CliCommandEnum::Bootstrap(a) => self.bootstrap(a),
-            CliCommandEnum::Show => self.show(),
-            CliCommandEnum::Refresh(a) => self.refresh(a.force),
-        }
-    }
-
-    fn read_config(&self) -> Result<ConfigData, Box<dyn Error>> {
+impl CredentialsCommand {
+    fn read_config(&self) -> Result<CredentialConfigData, Box<dyn Error>> {
         let file = fs::File::open(&self.config_path)?;
         let reader = io::BufReader::new(file);
         let json = serde_json::from_reader(reader)?;
         Ok(json)
     }
 
-    fn write_config(&self, cfg: &ConfigData) -> Result<(), Box<dyn Error>> {
+    fn write_config(&self, cfg: &CredentialConfigData) -> Result<(), Box<dyn Error>> {
         let json_string = serde_json::to_string_pretty(cfg)?;
         fs::write(&self.config_path, json_string)?;
         Ok(())
@@ -209,31 +192,7 @@ impl CredentialsCommand {
         })
     }
 
-    fn build_vault_client(
-        &self,
-        role_id: &String,
-        secret_id: &String,
-        url: &String,
-        auth_mount: &String,
-    ) -> Result<VaultClient, Box<dyn Error>> {
-        let app_role_client_builder = VaultClientBuilder::new()
-            .url(url)
-            .auth_mount(auth_mount)
-            .login(role_id, secret_id);
-
-        match app_role_client_builder {
-            Ok(c) => match c.build() {
-                Ok(c) => {
-                    println!("Successfully logged in with {}", role_id);
-                    Ok(c)
-                }
-                Err(e) => Err(format!("Failed to build app role client: [{}]", e).into()),
-            },
-            Err(e) => Err(format!("Failed to build app role client: [{}]", e).into()),
-        }
-    }
-
-    fn write_config_to_disk(&self, cfg: &ConfigData) -> Result<(), Box<dyn Error>> {
+    fn write_config_to_disk(&self, cfg: &CredentialConfigData) -> Result<(), Box<dyn Error>> {
         match self.write_config(&cfg) {
             Ok(_) => {
                 println!("Successfully wrote config to host");
@@ -243,7 +202,7 @@ impl CredentialsCommand {
         }
     }
 
-    fn refresh_needed(&self, cfg: &ConfigData) -> bool {
+    fn refresh_needed(&self, cfg: &CredentialConfigData) -> bool {
         let c_time = get_epoch();
         let mut refresh: bool = false;
         if !cfg.bootstrapped {
@@ -284,7 +243,7 @@ impl CredentialsCommand {
         if args.force {
             println!("New bootstrap forced with --force")
         }
-        let mut new_data = ConfigData {
+        let mut new_data = CredentialConfigData {
             role_id: String::new(),
             secret_id: String::new(),
             secret_id_accessor: String::new(),
@@ -329,11 +288,9 @@ impl CredentialsCommand {
 
                 println!("Attempting login with new credentials...");
                 // Attempt login to test credentials and create entity info
-                match self.build_vault_client(
-                    &new_data.role_id,
-                    &new_data.secret_id,
+                match Self::login_to_vault(
                     &self.opts.server,
-                    &args.auth_mount,
+                    &new_data,
                 ) {
                     Ok(c) => c,
                     Err(e) => {
@@ -378,11 +335,9 @@ impl CredentialsCommand {
                     println!("Refresh not needed. Use --force to perform action anyway.");
                     return;
                 }
-                let app_role_client = match self.build_vault_client(
-                    &c.role_id,
-                    &c.secret_id,
+                let app_role_client = match Self::login_to_vault(
                     &self.opts.server,
-                    &c.auth_mount,
+                    &c,
                 ) {
                     Ok(c) => c,
                     Err(e) => {
