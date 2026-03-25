@@ -13,16 +13,18 @@ fn main() {
     if !output_dir.exists() {
         println!("Output Directory does not exists. Creating..");
         match fs::create_dir_all(output_dir) {
-            Ok(_) => {println!("Output Directory Created.")}
-            Err(e) => {println!("Failed to create output directory: [{}]", e.to_string())}
+            Ok(_) => {
+                println!("Output Directory Created.")
+            }
+            Err(e) => {
+                println!("Failed to create output directory: [{}]", e.to_string())
+            }
         }
     }
 
     match cli.command {
         args::PrimaryCommandEnum::Credentials(commands) => {
-            commands::credentials::CredentialsCommand::new(
-                commands, cli.global_opts
-            ).execute();
+            commands::credentials::CredentialsCommand::new(commands, cli.global_opts).execute();
         }
         args::PrimaryCommandEnum::GPGKey { .. } => {}
         args::PrimaryCommandEnum::Crypt { .. } => {}

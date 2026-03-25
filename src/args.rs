@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand, Args};
+use clap::{Args, Parser, Subcommand};
 
 use crate::commands::credentials::CredentialsCommandStruct;
 
@@ -30,13 +30,12 @@ pub struct GlobalOpts {
     pub quiet: bool,
 }
 
-
 #[derive(Subcommand)]
 pub enum BaseSubCommandEnum {
     /// Refresh
     Refresh,
     /// Display Current Status
-    Show
+    Show,
 }
 
 #[derive(Subcommand)]
@@ -44,23 +43,23 @@ pub enum PrimaryCommandEnum {
     /// Manage the Vault Credentials
     Credentials(CredentialsCommandStruct),
     /// Manage SSH Key
-    SSH{
+    SSH {
         #[command(subcommand)]
         command: BaseSubCommandEnum,
     },
     /// Manage Local GPG Encryption Key
-    GPGKey{
+    GPGKey {
         #[command(subcommand)]
         command: BaseSubCommandEnum,
     },
     /// Manage Local User Passwords
-    Password{
+    Password {
         #[command(subcommand)]
         command: BaseSubCommandEnum,
     },
     /// Manage LUKS
-    Crypt{
+    Crypt {
         #[command(subcommand)]
         command: BaseSubCommandEnum,
-    }
+    },
 }

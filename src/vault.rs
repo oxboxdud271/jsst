@@ -1,71 +1,109 @@
-use std::collections::HashMap;
+use reqwest::blocking::{Client as HttpClient, Response};
+use reqwest::{header, StatusCode};
+use serde_json::{json, Value};
 use std::error::Error;
 use std::time::Duration;
-use reqwest::blocking::{Client as ReqwestClient, Response};
-use reqwest::header;
-use serde_json::Value;
 
 pub struct VaultClient {
     server_url: String,
-    client: ReqwestClient,
+    client: reqwest::blocking::Client,
 }
 
 impl VaultClient {
-    fn create_client(token: &String) -> ReqwestClient {
-        let mut headers = header::HeaderMap::new();
-        let token_str = header::HeaderValue::from_str(token.as_str());
-        match token_str {
-            Ok(v) => {
-                headers.insert("X-Vault-Token", v);
+    fn res(http_res: Result<Response, reqwest::Error>) -> Result<Value, Box<dyn Error>> {
+        match http_res {
+            Ok(resp) => {
+                println!("Vault Response: {}", resp.status());
+                match resp.status() {
+                    StatusCode::OK => Ok(resp.json()?),
+                    StatusCode::NO_CONTENT => Ok(json!({})),
+                    e => Err(format!("Vault Response Error {}", e).into()),
+                }
             }
-            Err(e) => {
-                println!("Invalid Vault Token provided")
-            }
-        }
-        ReqwestClient::builder()
-            .timeout(Duration::from_secs(10))
-            .default_headers(headers)
-            .build()
-            .unwrap()
-    }
-
-    pub fn new(url: &str) -> VaultClient {
-        VaultClient {
-            server_url: String::from(url),
-            client: ReqwestClient::new(),
+            Err(e) => Err(Box::from(e)),
         }
     }
 
-    pub fn get_token(&self, role_id: String, secret_id: String) -> Result<String, Box<dyn Error>> {
-        let mut body = HashMap::new();
-        body.insert("role_id", role_id);
-        body.insert("secret_id", secret_id);
-        let resp = self.client.post(&self.server_url).json(&body).send()?;
-        if !resp.status().is_success() {
-            Err("Login failed")?;
-        }
-        let resp_json: Value = resp.json()?;
-        let client_token = resp_json["auth"]["client_token"].as_str().unwrap();
-        Ok(String::from(client_token))
-    }
-
-    pub fn login_with_token(&mut self, token: String) {
-        self.client = VaultClient::create_client(&token);
-    }
-
-    pub fn post(&self, path: &String, json: &Value) -> reqwest::Result<Response> {
+    pub fn post(&self, path: &String, json: &Value) -> Result<Value, Box<dyn Error>> {
         let mut uri = String::from(&self.server_url);
         uri.push_str(path.as_str());
         println!("Vault POST: {}", uri);
-        self.client.post(uri)
-            .json(json)
-            .send()
+        Ok(VaultClient::res(self.client.post(uri).json(json).send())?)
     }
 
-    pub fn get(&self, path: &String) -> reqwest::Result<Response> {
+    pub fn get(&self, path: &String) -> Result<Value, Box<dyn Error>> {
         let mut uri = String::from(&self.server_url);
         uri.push_str(path.as_str());
         println!("Vault GET: {}", uri);
-        self.client.get(uri).send()
+        Ok(VaultClient::res(self.client.get(uri).send())?)
+    }
+}
+
+pub struct VaultClientBuilder {
+    token: String,
+    url: String,
+    auth_mount: String,
+}
+
+impl VaultClientBuilder {
+    pub fn new() -> Self {
+        Self {
+            token: String::new(),
+            url: String::new(),
+            auth_mount: String::new(),
+        }
+    }
+
+    pub fn url(self, url: &str) -> Self {
+        VaultClientBuilder {
+            url: String::from(url),
+            ..self
+        }
+    }
+
+    pub fn token(self, token: &str) -> Self {
+        VaultClientBuilder {
+            token: String::from(token),
+            ..self
+        }
+    }
+
+    pub fn auth_mount(self, mount: &str) -> Self {
+        VaultClientBuilder {
+            auth_mount: String::from(mount),
+            ..self
+        }
+    }
+
+    pub fn login(self, role_id: &str, secret_id: &str) -> Result<Self, Box<dyn Error>> {
+        let temp_client = HttpClient::new();
+        let mut uri = String::from(&self.url);
+        uri.push_str(format!("/v1/auth/{}/login", self.auth_mount).as_str());
+        let resp = temp_client
+            .post(uri)
+            .json(&json!({ "role_id": role_id, "secret_id": secret_id }))
+            .send()?;
+        if !resp.status().is_success() {
+            Err("Login failed")?
+        }
+        let resp_json: Value = resp.json()?;
+        let token = resp_json["auth"]["client_token"].as_str().unwrap();
+        Ok(VaultClientBuilder {
+            token: String::from(token),
+            ..self
+        })
+    }
+
+    pub fn build(self) -> Result<VaultClient, Box<dyn Error>> {
+        let mut headers = header::HeaderMap::new();
+        let token_str = header::HeaderValue::from_str(&self.token.as_str())?;
+        headers.insert("X-Vault-Token", token_str);
+        Ok(VaultClient {
+            server_url: self.url,
+            client: HttpClient::builder()
+                .timeout(Duration::from_secs(10))
+                .default_headers(headers)
+                .build()?,
+        })
     }
 }

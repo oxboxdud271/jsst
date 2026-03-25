@@ -27,5 +27,6 @@ Options:
   -V, --version          Print version
 ```
 
-## Todo
-1. Implement VaultClientBuilder
+## Examples
+Force run the bootstrap:  
+`jsst credentials bootstrap --token <TOKEN> --auth-id auth_approle_e8c728a1 --auth-mount jsst --force`
