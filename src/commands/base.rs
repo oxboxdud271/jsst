@@ -85,7 +85,7 @@ pub trait JSSTCommand<C> {
         cmd_self: &Self,
         jsst_path: &String,
         vault_url: &String,
-        cmd_inner: fn(&Self, client: &VaultClient) -> (),
+        matcher: impl Fn(&Self, &VaultClient),
     ) {
         let jsst_path_buf = PathBuf::from(jsst_path);
         match Self::read_config(&jsst_path_buf) {
@@ -97,7 +97,7 @@ pub trait JSSTCommand<C> {
                 match Self::login_to_vault(vault_url, &cfg) {
                     Ok(client) => {
                         println!("Successfully logged in with {}", &cfg.role_id);
-                        cmd_inner(cmd_self, &client);
+                        matcher(cmd_self, &client);
                     }
                     Err(e) => {
                         println!("{}", e);
