@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::path::PathBuf;
 use std::{fs, io};
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -32,8 +34,14 @@ pub trait JSSTCommand<C> {
     }
 
     fn write_config<T: Serialize>(path: &PathBuf, cfg: &T) -> Result<(), Box<dyn Error>> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .mode(0o600)
+            .open(path)?;
+
         let json_string = serde_json::to_string_pretty(cfg)?;
-        fs::write(path, json_string)?;
+        file.write(&json_string.as_bytes())?;
         Ok(())
     }
 
