@@ -13,7 +13,7 @@ impl VaultClient {
     fn res(http_res: Result<Response, reqwest::Error>) -> Result<Value, Box<dyn Error>> {
         match http_res {
             Ok(resp) => {
-                println!("Vault Response: {}", resp.status());
+                log::debug!("Vault Response: {}", resp.status());
                 match resp.status() {
                     StatusCode::OK => Ok(resp.json()?),
                     StatusCode::NO_CONTENT => Ok(json!({})),
@@ -27,14 +27,14 @@ impl VaultClient {
     pub fn post(&self, path: &String, json: &Value) -> Result<Value, Box<dyn Error>> {
         let mut uri = String::from(&self.server_url);
         uri.push_str(path.as_str());
-        println!("Vault POST: {}", uri);
+        log::debug!("Vault POST: {}", uri);
         Ok(VaultClient::res(self.client.post(uri).json(json).send())?)
     }
 
     pub fn get(&self, path: &String) -> Result<Value, Box<dyn Error>> {
         let mut uri = String::from(&self.server_url);
         uri.push_str(path.as_str());
-        println!("Vault GET: {}", uri);
+        log::debug!("Vault GET: {}", uri);
         Ok(VaultClient::res(self.client.get(uri).send())?)
     }
 }
@@ -46,7 +46,7 @@ pub struct VaultClientBuilder {
 }
 
 impl VaultClientBuilder {
-    pub fn new() -> Self {
+    pub fn  new() -> Self {
         Self {
             token: String::new(),
             url: String::new(),

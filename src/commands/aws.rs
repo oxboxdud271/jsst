@@ -5,6 +5,8 @@ use crate::vault::VaultClient;
 use clap::{Args, Subcommand};
 use serde_json::{json, Value};
 use uuid::Uuid;
+use chrono::DateTime;
+use crate::util::get_epoch;
 
 #[derive(Args)]
 pub struct SetupArgs {
@@ -39,8 +41,7 @@ impl JSSTCommand<AWSCommandStruct> for AWSCommand {
         let cmd = Self { commands, opts };
         Self::command_wrapper(
             &cmd,
-            &cmd.opts.output,
-            &cmd.opts.server,
+            &cmd.opts,
             |a, b, c| {
                 match &a.commands.command {
                     CliCommandEnum::Setup(args) => Self::setup(a, b, &args, c),
@@ -65,7 +66,7 @@ impl AWSCommand {
 
     fn setup_role(&self, client: &VaultClient, cfg: &CredentialConfigData) -> Result<Value, Box<dyn Error>> {
         let role_name = Self::get_role_name(&cfg.machine_uuid);
-        println!("Creating role [{}]...", role_name);
+        log::info!("Creating role [{}]...", role_name);
         let setup_role = client.post(
             &String::from(format!("/v1/aws/roles/{}", role_name)),
             &json!({
@@ -82,20 +83,20 @@ impl AWSCommand {
         match Self::get_role(client, &cfg.machine_uuid) {
             Ok(_) => {
                 if !args.force {
-                    println!("Role already exists in the Vault. Use --force to re-create");
+                    log::info!("Role already exists in the Vault. Use --force to re-create");
                     return;
                 }
             }
             Err(_) => {
-                println!("Role does not exist")
+                log::info!("Role does not exist")
             }
         }
         match self.setup_role(client, cfg) {
             Ok(_) => {
-                println!("Role created successfully");
+                log::info!("Role created successfully");
             }
             Err(e) => {
-                println!("Role creation failed: [{}]", e)
+                log::error!("Role creation failed: [{}]", e)
             }
         }
     }
@@ -110,17 +111,21 @@ impl AWSCommand {
         );
         match get_credentials {
             Ok(creds) => {
+                let c_time = get_epoch();
+                let cred_ttl = creds["data"]["ttl"].as_u64().unwrap();
+                let dt = DateTime::from_timestamp_secs((c_time + cred_ttl) as i64).unwrap();
                 let cli_creds = json!({
                     "Version": 1,
                     "AccessKeyId": creds["data"]["access_key"],
                     "SecretAccessKey": creds["data"]["secret_key"],
                     "SessionToken": creds["data"]["session_token"],
-                    "Expiration": "",
+                    "Expiration": format!("{:?}", dt),
                 });
+                // Always print this to stdout regardless of logging level
                 println!("{}", serde_json::to_string_pretty(&cli_creds).unwrap());
             }
             Err(e) => {
-                println!("Failed to retrieve credentials: [{}]", e);
+                log::error!("Failed to retrieve credentials: [{}]", e);
             }
         }
     }

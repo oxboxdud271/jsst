@@ -93,7 +93,7 @@ impl CredentialsCommand {
         machine_id: Uuid,
         auth_mount: &String,
     ) -> Result<String, Box<dyn Error>> {
-        println!("Creating / Updating App Role...");
+        log::info!("Creating / Updating App Role...");
         let app_role = client.post(
             &String::from(format!("/v1/auth/{}/role/{}", auth_mount, machine_id)),
             &json!({
@@ -106,7 +106,7 @@ impl CredentialsCommand {
             return Err(app_role["error"]["message"].as_str().unwrap().into());
         }
 
-        println!("Retrieving App Role ID...");
+        log::info!("Retrieving App Role ID...");
         let role_id = client.get(&String::from(format!(
             "/v1/auth/{}/role/{}/role-id",
             auth_mount, machine_id
@@ -125,7 +125,7 @@ impl CredentialsCommand {
         role_id: &String,
         alias_mount: &String,
     ) -> Result<EntityInfo, Box<dyn Error>> {
-        println!("Retrieving Entity...");
+        log::info!("Retrieving Entity...");
         let entity_lookup = client.post(
             &String::from("/v1/identity/lookup/entity"),
             &json!({
@@ -138,7 +138,7 @@ impl CredentialsCommand {
             name: String::from(entity_lookup["data"]["name"].as_str().unwrap()),
         };
 
-        println!("Updating Entity Metadata...");
+        log::info!("Updating Entity Metadata...");
         let update_entity_metadata = client.post(
             &String::from(format!("/v1/identity/entity/id/{}", entity_info.id)),
             &json!({
@@ -163,7 +163,7 @@ impl CredentialsCommand {
         machine_id: Uuid,
         auth_mount: &String,
     ) -> Result<SecretIDPair, Box<dyn Error>> {
-        println!("Creating Secret ID...");
+        log::info!("Creating Secret ID...");
         let secret_id = client.post(
             &String::from(format!(
                 "/v1/auth/{}/role/{}/secret-id",
@@ -184,7 +184,7 @@ impl CredentialsCommand {
     fn write_config_to_disk(&self, cfg: &CredentialConfigData) -> Result<(), Box<dyn Error>> {
         match Self::write_config(&self.config_path, &cfg) {
             Ok(_) => {
-                println!("Successfully wrote config to host");
+                log::info!("Successfully wrote config to host");
                 Ok(())
             }
             Err(e) => Err(format!("Failed to save config to disk: {}", e).into()),
@@ -214,23 +214,21 @@ impl CredentialsCommand {
                 should_bootstrap = self.refresh_needed(&c)
             }
             Err(e) => {
-                println!("Failed to read config: {}", e);
+                log::warn!("Failed to read config: {}", e);
                 if !args.force {
                     return;
                 }
                 should_bootstrap = true;
             }
         }
-        if self.opts.verbose {
-            println!("Token: {}", args.token);
-            println!("Continue Bootstrap?: {}", should_bootstrap);
-        }
+        log::debug!("Token: {}", args.token);
+        log::debug!("Continue Bootstrap?: {}", should_bootstrap);
         if !should_bootstrap && !args.force {
-            println!("Host already bootstrapped. Exiting.");
+            log::info!("Host already bootstrapped. Exiting.");
             return;
         }
         if args.force {
-            println!("New bootstrap forced with --force")
+            log::info!("New bootstrap forced with --force")
         }
         let mut new_data = CredentialConfigData {
             role_id: String::new(),
@@ -256,7 +254,7 @@ impl CredentialsCommand {
                         new_data.role_id = role_id;
                     }
                     Err(e) => {
-                        println!("Failed to bootstrap App Role: [{}]", e);
+                        log::error!("Failed to bootstrap App Role: [{}]", e);
                         return;
                     }
                 }
@@ -264,23 +262,23 @@ impl CredentialsCommand {
                 // Process Secret ID
                 match self.get_secret_id(&c, machine_id, &args.auth_mount) {
                     Ok(id) => {
-                        println!("New Secret ID TTL: {}", id.id_ttl);
+                        log::debug!("New Secret ID TTL: {}", id.id_ttl);
                         new_data.secret_id = id.id;
                         new_data.secret_id_accessor = id.accessor;
                         new_data.expiration = c_time + id.id_ttl;
                     }
                     Err(e) => {
-                        println!("Failed to bootstrap Secret ID: [{}]", e);
+                        log::error!("Failed to bootstrap Secret ID: [{}]", e);
                         return;
                     }
                 }
 
-                println!("Attempting login with new credentials...");
+                log::debug!("Attempting login with new credentials...");
                 // Attempt login to test credentials and create entity info
                 match Self::login_to_vault(&self.opts.server, &new_data) {
                     Ok(c) => c,
                     Err(e) => {
-                        println!("{}", e);
+                        log::error!("{}", e);
                         return;
                     }
                 };
@@ -292,13 +290,13 @@ impl CredentialsCommand {
                         new_data.entity_name = e.name
                     }
                     Err(e) => {
-                        println!("Failed to bootstrap Entity ID: [{}]", e);
+                        log::error!("Failed to bootstrap Entity ID: [{}]", e);
                         return;
                     }
                 }
             }
             Err(e) => {
-                println!("Failed to generate new client: [{}]", e);
+                log::error!("Failed to generate new client: [{}]", e);
                 return;
             }
         }
@@ -307,7 +305,7 @@ impl CredentialsCommand {
         match self.write_config_to_disk(&new_data) {
             Ok(_) => {}
             Err(e) => {
-                println!("{}", e);
+                log::error!("{}", e);
                 return;
             }
         }
@@ -318,17 +316,17 @@ impl CredentialsCommand {
         match Self::read_config(&self.config_path) {
             Ok(c) => {
                 if !self.refresh_needed(&c) && !force {
-                    println!("Refresh not needed. Use --force to perform action anyway.");
+                    log::info!("Refresh not needed. Use --force to perform action anyway.");
                     return;
                 }
                 let app_role_client = match Self::login_to_vault(&self.opts.server, &c) {
                     Ok(c) => c,
                     Err(e) => {
-                        println!("{}", e);
+                        log::error!("{}", e);
                         return;
                     }
                 };
-                println!("Attempting Secret ID Refresh");
+                log::info!("Attempting Secret ID Refresh");
                 match self.get_secret_id(&app_role_client, c.machine_uuid, &c.auth_mount) {
                     Ok(s) => {
                         let mut x = c;
@@ -337,13 +335,13 @@ impl CredentialsCommand {
                         x.expiration = c_time + s.id_ttl;
                     }
                     Err(e) => {
-                        println!("Failed to generate new Secret ID: [{}]", e);
+                        log::error!("Failed to generate new Secret ID: [{}]", e);
                         return;
                     }
                 }
             }
             Err(e) => {
-                println!("Failed to read config: [{}]", e);
+                log::error!("Failed to read config: [{}]", e);
                 return;
             }
         }
