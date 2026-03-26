@@ -33,15 +33,21 @@ pub trait JSSTCommand<C> {
         Ok(json)
     }
 
-    fn write_config<T: Serialize>(path: &PathBuf, cfg: &T) -> Result<(), Box<dyn Error>> {
-        let mut file = fs::OpenOptions::new()
+    fn open_file(path: &PathBuf) -> Result<fs::File, Box<dyn Error>> {
+        Ok(
+            fs::OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(true)
             .mode(0o600)
-            .open(path)?;
+            .open(path)?
+        )
+    }
 
+    fn write_config<T: Serialize>(path: &PathBuf, cfg: &T) -> Result<(), Box<dyn Error>> {
+        let file = Self::open_file(path)?;
         let json_string = serde_json::to_string_pretty(cfg)?;
-        file.write(&json_string.as_bytes())?;
+        write!(&file, "{}", json_string)?;
         Ok(())
     }
 

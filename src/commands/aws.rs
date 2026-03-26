@@ -1,4 +1,6 @@
 use std::error::Error;
+use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use crate::args::GlobalOpts;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
@@ -66,6 +68,14 @@ pub struct AWSCredentialData {
 impl JSSTCommand<AWSCommandStruct> for AWSCommand {
     fn execute(commands: AWSCommandStruct, opts: GlobalOpts) -> Self
     {
+        match fs::create_dir_all(format!("{}/aws", opts.output)) {
+            Ok(_) => {
+                log::debug!("Created AWS JSST sub directory")
+            }
+            Err(e) => {
+                log::error!("Failed to create AWS JSST sub directory: [{}]", e)
+            }
+        }
         let cmd = Self { commands, opts };
         Self::command_wrapper(
             &cmd,
@@ -110,6 +120,14 @@ impl AWSCommand {
         Ok(setup_role?)
     }
 
+    fn create_config_file(&self) -> Result<(), Box<dyn Error>> {
+        let mut config_path = PathBuf::from(&self.opts.output);
+        config_path.push("aws/config");
+        let file = Self::open_file(&config_path)?;
+        write!(&file, "[profile host]\ncredential_process=/usr/bin/jsst -q -o {} aws retrieve\n", &self.opts.output)?;
+        Ok(())
+    }
+
     fn setup(&self, args: &SetupArgs, cfg: &CredentialConfigData) {
         let client = match Self::login_to_vault(&self.opts.server, &cfg) {
             Ok(c) => c,
@@ -137,6 +155,14 @@ impl AWSCommand {
                 log::error!("Role creation failed: [{}]", e)
             }
         }
+        match self.create_config_file() {
+            Ok(_) => {
+                log::info!("AWS config created successfully");
+            }
+            Err(e) => {
+                log::error!("Create config file failed: [{}]", e)
+            }
+        }
     }
 
     fn get_cache_credential(&self, path: &PathBuf) -> Result<AWSCredentialData, Box<dyn Error>> {
@@ -152,7 +178,7 @@ impl AWSCommand {
 
     fn retrieve(&self, args: &RetrieveArgs, cfg: &CredentialConfigData) {
         let mut cache_path = PathBuf::from(&self.opts.output);
-        cache_path.push("aws_cache.json");
+        cache_path.push("aws/cred_cache.json");
         match self.get_cache_credential(&cache_path) {
             Ok(data) => {
                 if !args.no_cache {
