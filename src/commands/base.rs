@@ -85,9 +85,10 @@ pub trait JSSTCommand<C> {
         cmd_self: &Self,
         jsst_path: &String,
         vault_url: &String,
-        matcher: impl Fn(&Self, &VaultClient),
+        matcher: impl Fn(&Self, &VaultClient, &CredentialConfigData),
     ) {
-        let jsst_path_buf = PathBuf::from(jsst_path);
+        let mut jsst_path_buf = PathBuf::from(jsst_path);
+        jsst_path_buf.push("credentials.json");
         match Self::read_config(&jsst_path_buf) {
             Ok(cfg) => {
                 if !Self::is_credentials_valid(&cfg) {
@@ -97,7 +98,7 @@ pub trait JSSTCommand<C> {
                 match Self::login_to_vault(vault_url, &cfg) {
                     Ok(client) => {
                         println!("Successfully logged in with {}", &cfg.role_id);
-                        matcher(cmd_self, &client);
+                        matcher(cmd_self, &client, &cfg);
                     }
                     Err(e) => {
                         println!("{}", e);
