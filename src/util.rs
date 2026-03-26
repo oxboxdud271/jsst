@@ -8,6 +8,6 @@ pub fn get_epoch() -> u64 {
     }
 }
 
-pub fn json_to_string(json: serde_json::Value) -> String {
+pub fn json_to_string(json: &serde_json::Value) -> String {
     String::from(json.as_str().unwrap())
 }

@@ -1,12 +1,14 @@
 use std::error::Error;
+use std::path::PathBuf;
 use crate::args::GlobalOpts;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
 use crate::vault::VaultClient;
 use clap::{Args, Subcommand};
 use serde_json::{json, Value};
 use uuid::Uuid;
-use chrono::DateTime;
-use crate::util::get_epoch;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use crate::util::{get_epoch, json_to_string};
 
 #[derive(Args)]
 pub struct SetupArgs {
@@ -15,12 +17,19 @@ pub struct SetupArgs {
     pub force: bool
 }
 
+#[derive(Args)]
+pub struct RetrieveArgs {
+    #[arg(long)]
+    /// Do not use cache AWS credentials
+    pub no_cache: bool
+}
+
 #[derive(Subcommand)]
 pub enum CliCommandEnum {
     /// Setup AWS Role in Vault
     Setup(SetupArgs),
     /// Retrieve Temporary AWS Credentials
-    Retrieve,
+    Retrieve(RetrieveArgs),
 }
 
 #[derive(Args)]
@@ -35,6 +44,25 @@ pub struct AWSCommand {
 }
 
 
+#[derive(Serialize, Deserialize)]
+pub struct AWSCredentialData {
+    #[serde(rename = "AccessKeyId")]
+    pub access_key_id: String,
+
+    #[serde(rename = "Expiration")]
+    pub expiration: String,
+
+    #[serde(rename = "SecretAccessKey")]
+    pub secret_access_key: String,
+
+    #[serde(rename = "SessionToken")]
+    pub session_token: String,
+
+    #[serde(rename = "Version")]
+    pub version: i8
+}
+
+
 impl JSSTCommand<AWSCommandStruct> for AWSCommand {
     fn execute(commands: AWSCommandStruct, opts: GlobalOpts) -> Self
     {
@@ -45,7 +73,7 @@ impl JSSTCommand<AWSCommandStruct> for AWSCommand {
             |a, b, c| {
                 match &a.commands.command {
                     CliCommandEnum::Setup(args) => Self::setup(a, b, &args, c),
-                    CliCommandEnum::Retrieve => Self::retrieve(a, b, c)
+                    CliCommandEnum::Retrieve(args) => Self::retrieve(a, b, &args, c)
                 }
             }
         );
@@ -73,6 +101,9 @@ impl AWSCommand {
                 "credential_type": "assumed_role",
                 "role_arns": [
                     "arn:aws:iam::048780619790:role/VaultHostRole"
+                ],
+                "session_tags": [
+                    {"machine-id": &cfg.machine_uuid}
                 ]
             })
         );
@@ -101,7 +132,34 @@ impl AWSCommand {
         }
     }
 
-    fn retrieve(&self, client: &VaultClient, cfg: &CredentialConfigData) {
+    fn get_cache_credential(&self, path: &PathBuf) -> Result<AWSCredentialData, Box<dyn Error>> {
+        let c_time = DateTime::from_timestamp_secs(get_epoch() as i64).unwrap();
+        let cfg = Self::read_config::<AWSCredentialData>(&path)?;
+        let cache_expire = cfg.expiration.parse::<DateTime<Utc>>()?;
+        if c_time > cache_expire {
+            return Err("Expired".into())
+        }
+        Ok(cfg)
+    }
+
+
+    fn retrieve(&self, client: &VaultClient, args: &RetrieveArgs, cfg: &CredentialConfigData) {
+        let mut cache_path = PathBuf::from(&self.opts.output);
+        cache_path.push("aws_cache.json");
+        match self.get_cache_credential(&cache_path) {
+            Ok(data) => {
+                if !args.no_cache {
+                    log::info!("Returning cached AWS credentials");
+                    println!("{}", serde_json::to_string_pretty(&data).unwrap());
+                    return;
+                } else {
+                    log::info!("Ignoring cache.")
+                }
+            }
+            Err(e) => {
+                log::info!("Cache miss: [{}]", e)
+            }
+        }
         let role_name = Self::get_role_name(&cfg.machine_uuid);
         let get_credentials = client.post(
             &String::from(format!("/v1/aws/sts/{}", role_name)),
@@ -111,18 +169,25 @@ impl AWSCommand {
         );
         match get_credentials {
             Ok(creds) => {
-                let c_time = get_epoch();
                 let cred_ttl = creds["data"]["ttl"].as_u64().unwrap();
-                let dt = DateTime::from_timestamp_secs((c_time + cred_ttl) as i64).unwrap();
-                let cli_creds = json!({
-                    "Version": 1,
-                    "AccessKeyId": creds["data"]["access_key"],
-                    "SecretAccessKey": creds["data"]["secret_key"],
-                    "SessionToken": creds["data"]["session_token"],
-                    "Expiration": format!("{:?}", dt),
-                });
+                let dt = DateTime::from_timestamp_secs((get_epoch() + cred_ttl) as i64).unwrap();
+                let new_creds = AWSCredentialData {
+                    access_key_id: json_to_string(&creds["data"]["access_key"]),
+                    expiration: format!("{:?}", dt),
+                    secret_access_key:  json_to_string(&creds["data"]["secret_key"]),
+                    session_token:  json_to_string(&creds["data"]["session_token"]),
+                    version: 1,
+                };
+                match Self::write_config(&cache_path, &new_creds) {
+                    Ok(_) => {
+                        log::info!("Successfully cached AWS Credentials.");
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to cache AWS Credentials: [{}]", e)
+                    }
+                }
                 // Always print this to stdout regardless of logging level
-                println!("{}", serde_json::to_string_pretty(&cli_creds).unwrap());
+                println!("{}", serde_json::to_string_pretty(&new_creds).unwrap());
             }
             Err(e) => {
                 log::error!("Failed to retrieve credentials: [{}]", e);
