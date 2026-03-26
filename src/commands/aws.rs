@@ -70,10 +70,10 @@ impl JSSTCommand<AWSCommandStruct> for AWSCommand {
         Self::command_wrapper(
             &cmd,
             &cmd.opts,
-            |a, b, c| {
-                match &a.commands.command {
-                    CliCommandEnum::Setup(args) => Self::setup(a, b, &args, c),
-                    CliCommandEnum::Retrieve(args) => Self::retrieve(a, b, &args, c)
+            |cmd, cfg| {
+                match &cmd.commands.command {
+                    CliCommandEnum::Setup(args) => Self::setup(cmd, &args, cfg),
+                    CliCommandEnum::Retrieve(args) => Self::retrieve(cmd, &args, cfg)
                 }
             }
         );
@@ -110,8 +110,15 @@ impl AWSCommand {
         Ok(setup_role?)
     }
 
-    fn setup(&self, client: &VaultClient, args: &SetupArgs, cfg: &CredentialConfigData) {
-        match Self::get_role(client, &cfg.machine_uuid) {
+    fn setup(&self, args: &SetupArgs, cfg: &CredentialConfigData) {
+        let client = match Self::login_to_vault(&self.opts.server, &cfg) {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("{}", e);
+                return;
+            }
+        };
+        match Self::get_role(&client, &cfg.machine_uuid) {
             Ok(_) => {
                 if !args.force {
                     log::info!("Role already exists in the Vault. Use --force to re-create");
@@ -122,7 +129,7 @@ impl AWSCommand {
                 log::info!("Role does not exist")
             }
         }
-        match self.setup_role(client, cfg) {
+        match self.setup_role(&client, cfg) {
             Ok(_) => {
                 log::info!("Role created successfully");
             }
@@ -143,7 +150,7 @@ impl AWSCommand {
     }
 
 
-    fn retrieve(&self, client: &VaultClient, args: &RetrieveArgs, cfg: &CredentialConfigData) {
+    fn retrieve(&self, args: &RetrieveArgs, cfg: &CredentialConfigData) {
         let mut cache_path = PathBuf::from(&self.opts.output);
         cache_path.push("aws_cache.json");
         match self.get_cache_credential(&cache_path) {
@@ -160,6 +167,13 @@ impl AWSCommand {
                 log::info!("Cache miss: [{}]", e)
             }
         }
+        let client = match Self::login_to_vault(&self.opts.server, &cfg) {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("{}", e);
+                return;
+            }
+        };
         let role_name = Self::get_role_name(&cfg.machine_uuid);
         let get_credentials = client.post(
             &String::from(format!("/v1/aws/sts/{}", role_name)),

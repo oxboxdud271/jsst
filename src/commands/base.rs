@@ -92,7 +92,7 @@ pub trait JSSTCommand<C> {
     fn command_wrapper(
         cmd_self: &Self,
         opts: &GlobalOpts,
-        matcher: impl Fn(&Self, &VaultClient, &CredentialConfigData),
+        matcher: impl Fn(&Self, &CredentialConfigData),
     ) {
         let mut jsst_path_buf = PathBuf::from(&opts.output);
         jsst_path_buf.push("credentials.json");
@@ -102,17 +102,8 @@ pub trait JSSTCommand<C> {
                     log::error!("Vault Credentials are invalid / expired. Re-run bootstrap.");
                     return;
                 }
-                match Self::login_to_vault(&opts.server, &cfg) {
-                    Ok(client) => {
-                        if !&opts.quiet {
-                            log::info!("Successfully logged in with {}", &cfg.role_id);
-                        }
-                        matcher(cmd_self, &client, &cfg);
-                    }
-                    Err(e) => {
-                        log::error!("{}", e);
-                    }
-                }
+
+                matcher(cmd_self, &cfg);
             }
             Err(e) => {
                 log::error!("{}", e);
