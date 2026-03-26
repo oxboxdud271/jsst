@@ -1,5 +1,6 @@
 use crate::commands::aws::AWSCommandStruct;
 use crate::commands::credentials::CredentialsCommandStruct;
+use crate::commands::passwd::PasswdCommandStruct;
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
@@ -53,10 +54,7 @@ pub enum PrimaryCommandEnum {
         command: BaseSubCommandEnum,
     },
     /// Manage Local User Passwords
-    Password {
-        #[command(subcommand)]
-        command: BaseSubCommandEnum,
-    },
+    Password(PasswdCommandStruct),
     /// Manage LUKS
     Crypt {
         #[command(subcommand)]

@@ -42,15 +42,17 @@ fn main() {
     };
 
     match cli.command {
-        args::PrimaryCommandEnum::Credentials(commands) => {
-            commands::credentials::CredentialsCommand::execute(commands, cli.global_opts);
+        args::PrimaryCommandEnum::Credentials(c) => {
+            commands::credentials::CredentialsCommand::execute(c, cli.global_opts);
         }
         args::PrimaryCommandEnum::GPGKey { .. } => {}
         args::PrimaryCommandEnum::Crypt { .. } => {}
         args::PrimaryCommandEnum::SSH { .. } => {}
-        args::PrimaryCommandEnum::Password { .. } => {}
-        args::PrimaryCommandEnum::AWS(commands) => {
-            commands::aws::AWSCommand::execute(commands, cli.global_opts);
+        args::PrimaryCommandEnum::Password(c) => {
+            commands::passwd::PasswdCommand::execute(c, cli.global_opts);
+        }
+        args::PrimaryCommandEnum::AWS(c) => {
+            commands::aws::AWSCommand::execute(c, cli.global_opts);
         }
     }
 }
