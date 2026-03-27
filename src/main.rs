@@ -52,5 +52,8 @@ fn main() {
         args::PrimaryCommandEnum::AWS(c) => {
             commands::aws::AWSCommand::execute(c, cli.global_opts);
         }
+        args::PrimaryCommandEnum::Utility(c) => {
+            commands::utility::UtilityCommand::execute(c, cli.global_opts);
+        }
     }
 }

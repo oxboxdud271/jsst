@@ -1,0 +1,42 @@
+use clap::{Args, Subcommand};
+use crate::args::GlobalOpts;
+use crate::commands::base::{CredentialConfigData, JSSTCommand};
+
+#[derive(Subcommand)]
+pub enum CliCommandEnum {
+    /// Retrieve Vault Data Key
+    DataKey,
+    /// Setup Environment variables for Restic
+    Restic
+}
+
+#[derive(Args)]
+pub struct UtilityCommandStruct {
+    #[command(subcommand)]
+    pub command: CliCommandEnum,
+}
+
+pub struct UtilityCommand {
+    pub commands: UtilityCommandStruct,
+    pub opts: GlobalOpts,
+}
+
+impl JSSTCommand<UtilityCommandStruct> for UtilityCommand {
+    fn execute(commands: UtilityCommandStruct, opts: GlobalOpts) -> Self {
+        let cmd = Self { commands, opts };
+        Self::command_wrapper(
+            &cmd,
+            &cmd.opts,
+            |cmd, cfg| {
+                match &cmd.commands.command {
+                    CliCommandEnum::DataKey => Self::get_data_key(cmd, cfg),
+                    CliCommandEnum::Restic => todo!()
+                }
+            }
+        );
+        cmd
+    }
+}
+impl UtilityCommand {
+    fn get_data_key(&self, cfg: &CredentialConfigData) {}
+}
