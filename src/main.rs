@@ -45,8 +45,6 @@ fn main() {
         args::PrimaryCommandEnum::Credentials(c) => {
             commands::credentials::CredentialsCommand::execute(c, cli.global_opts);
         }
-        args::PrimaryCommandEnum::GPGKey { .. } => {}
-        args::PrimaryCommandEnum::Crypt { .. } => {}
         args::PrimaryCommandEnum::SSH { .. } => {}
         args::PrimaryCommandEnum::Password(c) => {
             commands::passwd::PasswdCommand::execute(c, cli.global_opts);

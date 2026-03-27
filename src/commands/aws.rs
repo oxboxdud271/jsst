@@ -239,7 +239,7 @@ impl AWSCommand {
     }
 
     fn retrieve(&self, args: &RetrieveArgs, cfg: &CredentialConfigData) {
-        match self.get_credentials(cfg, args.no_cache) {
+        match self.get_credentials(cfg, !args.no_cache) {
             Ok(creds) => {
                 // Always print this to stdout regardless of logging level
                 println!("{}", serde_json::to_string_pretty(&creds).unwrap());

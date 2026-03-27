@@ -3,6 +3,7 @@ use crate::commands::credentials::CredentialsCommandStruct;
 use crate::commands::passwd::PasswdCommandStruct;
 use clap::{Args, Parser, Subcommand};
 
+
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 #[command(propagate_version = true)]
@@ -48,18 +49,8 @@ pub enum PrimaryCommandEnum {
         #[command(subcommand)]
         command: BaseSubCommandEnum,
     },
-    /// Manage Local GPG Encryption Key
-    GPGKey {
-        #[command(subcommand)]
-        command: BaseSubCommandEnum,
-    },
     /// Manage Local User Passwords
     Password(PasswdCommandStruct),
-    /// Manage LUKS
-    Crypt {
-        #[command(subcommand)]
-        command: BaseSubCommandEnum,
-    },
     /// Manage AWS Credentials
     AWS(AWSCommandStruct),
 }
