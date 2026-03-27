@@ -86,18 +86,17 @@ impl JSSTCommand<AWSCommandStruct> for AWSCommand {
             }
         }
         let cmd = Self { commands, opts };
-        Self::command_wrapper(
+        Ok(Self::command_wrapper(
             &cmd,
             &cmd.opts,
             |cmd, cfg| {
-                match &cmd.commands.command {
+                Ok(match &cmd.commands.command {
                     CliCommandEnum::Setup(a) => Self::setup(cmd, &a, cfg),
                     CliCommandEnum::Retrieve(a) => Self::retrieve(cmd, &a, cfg),
                     CliCommandEnum::Run(a) => Self::run(cmd, &a, cfg)
-                }
+                })
             }
-        );
-        Ok(())
+        )?)
     }
 }
 

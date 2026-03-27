@@ -25,19 +25,22 @@ pub struct UtilityCommand {
 impl JSSTCommand<UtilityCommandStruct> for UtilityCommand {
     fn execute(commands: UtilityCommandStruct, opts: GlobalOpts) -> GenericErr {
         let cmd = Self { commands, opts };
-        Self::command_wrapper(
+        Ok(Self::command_wrapper(
             &cmd,
             &cmd.opts,
             |cmd, cfg| {
-                match &cmd.commands.command {
-                    CliCommandEnum::DataKey => Self::get_data_key(cmd, cfg),
+                Ok(match &cmd.commands.command {
+                    CliCommandEnum::DataKey => Self::get_data_key(cmd, cfg)?,
                     CliCommandEnum::Restic => todo!()
-                }
+                })
             }
-        );
-        Ok(())
+        )?)
     }
 }
 impl UtilityCommand {
-    fn get_data_key(&self, cfg: &CredentialConfigData) {}
+    fn get_data_key(&self, cfg: &CredentialConfigData) -> GenericErr {
+        let client = Self::login_to_vault(&self.opts.server, &cfg)?;
+
+        Ok(())
+    }
 }

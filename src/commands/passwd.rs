@@ -25,12 +25,12 @@ pub struct PasswdCommand {
 impl JSSTCommand<PasswdCommandStruct> for PasswdCommand {
     fn execute(commands: PasswdCommandStruct, opts: GlobalOpts) -> GenericErr {
         let cmd = Self { commands, opts };
-        Self::command_wrapper(
+        Ok(Self::command_wrapper(
             &cmd,
             &cmd.opts,
             |cmd, cfg| {
+                Ok(())
             }
-        );
-        Ok(())
+        )?)
     }
 }
