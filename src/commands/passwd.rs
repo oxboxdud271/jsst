@@ -1,6 +1,7 @@
 use clap::{Args, Subcommand};
 use crate::args::GlobalOpts;
 use crate::commands::base::JSSTCommand;
+use crate::util::GenericErr;
 
 #[derive(Subcommand)]
 pub enum CliCommandEnum {
@@ -22,8 +23,7 @@ pub struct PasswdCommand {
 }
 
 impl JSSTCommand<PasswdCommandStruct> for PasswdCommand {
-    fn execute(commands: PasswdCommandStruct, opts: GlobalOpts) -> Self
-    {
+    fn execute(commands: PasswdCommandStruct, opts: GlobalOpts) -> GenericErr {
         let cmd = Self { commands, opts };
         Self::command_wrapper(
             &cmd,
@@ -31,6 +31,6 @@ impl JSSTCommand<PasswdCommandStruct> for PasswdCommand {
             |cmd, cfg| {
             }
         );
-        cmd
+        Ok(())
     }
 }

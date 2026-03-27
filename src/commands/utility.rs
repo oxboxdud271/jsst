@@ -1,6 +1,7 @@
 use clap::{Args, Subcommand};
 use crate::args::GlobalOpts;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
+use crate::util::GenericErr;
 
 #[derive(Subcommand)]
 pub enum CliCommandEnum {
@@ -22,7 +23,7 @@ pub struct UtilityCommand {
 }
 
 impl JSSTCommand<UtilityCommandStruct> for UtilityCommand {
-    fn execute(commands: UtilityCommandStruct, opts: GlobalOpts) -> Self {
+    fn execute(commands: UtilityCommandStruct, opts: GlobalOpts) -> GenericErr {
         let cmd = Self { commands, opts };
         Self::command_wrapper(
             &cmd,
@@ -34,7 +35,7 @@ impl JSSTCommand<UtilityCommandStruct> for UtilityCommand {
                 }
             }
         );
-        cmd
+        Ok(())
     }
 }
 impl UtilityCommand {

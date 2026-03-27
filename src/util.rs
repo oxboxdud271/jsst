@@ -1,4 +1,8 @@
+use std::error::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+pub type GenericErr<T = (), E = Box<dyn Error>> = Result<T, E>;
+
 
 pub fn get_epoch() -> u64 {
     let now = SystemTime::now();

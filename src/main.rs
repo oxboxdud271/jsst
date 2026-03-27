@@ -1,8 +1,11 @@
+use std::error::Error;
 use crate::commands::base::JSSTCommand;
 use crate::logging::logger_init;
 use clap::Parser;
 use std::fs;
 use std::path::Path;
+use std::process::ExitCode;
+use crate::args::Cli;
 
 pub mod args;
 pub mod commands;
@@ -10,7 +13,26 @@ pub mod util;
 mod vault;
 pub mod logging;
 
-fn main() {
+
+fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
+    Ok(match cli.command {
+        args::PrimaryCommandEnum::Credentials(c) => {
+            commands::credentials::CredentialsCommand::execute(c, cli.global_opts)?
+        }
+        args::PrimaryCommandEnum::SSH { .. } => {}
+        args::PrimaryCommandEnum::Password(c) => {
+            commands::passwd::PasswdCommand::execute(c, cli.global_opts)?
+        }
+        args::PrimaryCommandEnum::AWS(c) => {
+            commands::aws::AWSCommand::execute(c, cli.global_opts)?
+        }
+        args::PrimaryCommandEnum::Utility(c) => {
+            commands::utility::UtilityCommand::execute(c, cli.global_opts)?
+        }
+    })
+}
+
+fn main() -> ExitCode {
     let cli = args::Cli::parse();
     let output_dir = Path::new(&cli.global_opts.output);
     if !output_dir.exists() {
@@ -21,7 +43,7 @@ fn main() {
             }
             Err(e) => {
                 log::error!("Failed to create output directory: [{}]", e.to_string());
-                return;
+                return ExitCode::FAILURE;
             }
         }
     }
@@ -37,23 +59,12 @@ fn main() {
         Ok(_) => (),
         Err(e) => {
             log::error!("Logger initialization failed with {:?}", e);
-            return;
+            return ExitCode::FAILURE;;
         }
     };
 
-    match cli.command {
-        args::PrimaryCommandEnum::Credentials(c) => {
-            commands::credentials::CredentialsCommand::execute(c, cli.global_opts);
-        }
-        args::PrimaryCommandEnum::SSH { .. } => {}
-        args::PrimaryCommandEnum::Password(c) => {
-            commands::passwd::PasswdCommand::execute(c, cli.global_opts);
-        }
-        args::PrimaryCommandEnum::AWS(c) => {
-            commands::aws::AWSCommand::execute(c, cli.global_opts);
-        }
-        args::PrimaryCommandEnum::Utility(c) => {
-            commands::utility::UtilityCommand::execute(c, cli.global_opts);
-        }
+    match run(cli) {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(_) => ExitCode::FAILURE
     }
 }

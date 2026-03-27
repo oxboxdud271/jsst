@@ -1,5 +1,5 @@
 use crate::args::GlobalOpts;
-use crate::util::get_epoch;
+use crate::util::{get_epoch, GenericErr};
 use crate::vault::{VaultClient, VaultClientBuilder};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -9,6 +9,7 @@ use std::{fs, io};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use uuid::Uuid;
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CredentialConfigData {
@@ -24,7 +25,7 @@ pub struct CredentialConfigData {
 }
 
 pub trait JSSTCommand<C> {
-    fn execute(commands: C, opts: GlobalOpts) -> Self;
+    fn execute(commands: C, opts: GlobalOpts) -> GenericErr;
 
     fn read_config<T: DeserializeOwned>(path: &PathBuf) -> Result<T, Box<dyn Error>> {
         let file = fs::File::open(path)?;
