@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use crate::args::GlobalOpts;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
 use crate::vault::VaultClient;
@@ -26,12 +27,20 @@ pub struct RetrieveArgs {
     pub no_cache: bool
 }
 
+#[derive(Args)]
+pub struct RunArgs {
+    #[arg(trailing_var_arg = true)]
+    cmd: Vec<String>,
+}
+
 #[derive(Subcommand)]
 pub enum CliCommandEnum {
     /// Setup AWS Role in Vault
     Setup(SetupArgs),
-    /// Retrieve Temporary AWS Credentials
+    /// Output temporary AWS credentials to stdout
     Retrieve(RetrieveArgs),
+    /// Run command with AWS certs in Environment
+    Run(RunArgs),
 }
 
 #[derive(Args)]
@@ -82,8 +91,9 @@ impl JSSTCommand<AWSCommandStruct> for AWSCommand {
             &cmd.opts,
             |cmd, cfg| {
                 match &cmd.commands.command {
-                    CliCommandEnum::Setup(args) => Self::setup(cmd, &args, cfg),
-                    CliCommandEnum::Retrieve(args) => Self::retrieve(cmd, &args, cfg)
+                    CliCommandEnum::Setup(a) => Self::setup(cmd, &a, cfg),
+                    CliCommandEnum::Retrieve(a) => Self::retrieve(cmd, &a, cfg),
+                    CliCommandEnum::Run(a) => Self::run(cmd, &a, cfg)
                 }
             }
         );
@@ -176,15 +186,14 @@ impl AWSCommand {
     }
 
 
-    fn retrieve(&self, args: &RetrieveArgs, cfg: &CredentialConfigData) {
+    fn get_credentials(&self, cfg: &CredentialConfigData, use_cache: bool) -> Result<AWSCredentialData, Box<dyn Error>> {
         let mut cache_path = PathBuf::from(&self.opts.output);
         cache_path.push("aws/cred_cache.json");
         match self.get_cache_credential(&cache_path) {
             Ok(data) => {
-                if !args.no_cache {
+                if use_cache {
                     log::info!("Returning cached AWS credentials");
-                    println!("{}", serde_json::to_string_pretty(&data).unwrap());
-                    return;
+                    return Ok(data);
                 } else {
                     log::info!("Ignoring cache.")
                 }
@@ -195,10 +204,7 @@ impl AWSCommand {
         }
         let client = match Self::login_to_vault(&self.opts.server, &cfg) {
             Ok(c) => c,
-            Err(e) => {
-                log::error!("{}", e);
-                return;
-            }
+            Err(e) => return Err(e)
         };
         let role_name = Self::get_role_name(&cfg.machine_uuid);
         let get_credentials = client.post(
@@ -226,12 +232,46 @@ impl AWSCommand {
                         log::warn!("Failed to cache AWS Credentials: [{}]", e)
                     }
                 }
+                Ok(new_creds)
+            }
+            Err(e) => Err(e)
+        }
+    }
+
+    fn retrieve(&self, args: &RetrieveArgs, cfg: &CredentialConfigData) {
+        match self.get_credentials(cfg, args.no_cache) {
+            Ok(creds) => {
                 // Always print this to stdout regardless of logging level
-                println!("{}", serde_json::to_string_pretty(&new_creds).unwrap());
+                println!("{}", serde_json::to_string_pretty(&creds).unwrap());
             }
-            Err(e) => {
-                log::error!("Failed to retrieve credentials: [{}]", e);
+            Err(e) => log::warn!("Failed to retrieve credentials: [{}]", e)
+        }
+    }
+
+    fn start_cmd_process(creds: &AWSCredentialData, cmd: &Vec<String>) -> Result<(), Box<dyn Error>>   {
+        let new_process = Command::new(&cmd[0])
+            .args(&cmd[1..])
+            .stdout(Stdio::inherit())
+            .env("AWS_ACCESS_KEY_ID", &creds.access_key_id)
+            .env("AWS_SECRET_ACCESS_KEY", &creds.secret_access_key)
+            .env("AWS_SESSION_TOKEN", &creds.session_token)
+            .spawn()?;
+        new_process.wait_with_output()?;
+        Ok(())
+    }
+
+    fn run(&self, args: &RunArgs, cfg: &CredentialConfigData) {
+        match self.get_credentials(cfg, true) {
+            Ok(creds) => {
+                log::info!("Command: {:?}", args.cmd);
+                match {Self::start_cmd_process(&creds, &args.cmd) } {
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::warn!("Failed to start command process: [{}]", e)
+                    }
+                }
             }
+            Err(e) => log::warn!("Failed to retrieve credentials: [{}]", e)
         }
     }
 }
