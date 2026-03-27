@@ -34,6 +34,23 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
 
 fn main() -> ExitCode {
     let cli = args::Cli::parse();
+
+    let mut max_log = log::LevelFilter::Info;
+    if cli.global_opts.quiet {
+        max_log = log::LevelFilter::Off;
+    }
+    if cli.global_opts.verbose {
+        max_log = log::LevelFilter::Debug;
+    }
+
+    match logger_init(max_log) {
+        Ok(_) => (),
+        Err(e) => {
+            log::error!("Logger initialization failed with {:?}", e);
+            return ExitCode::FAILURE;
+        }
+    };
+
     let output_dir = Path::new(&cli.global_opts.output);
     if !output_dir.exists() {
         log::info!("Output Directory does not exists. Creating..");
@@ -48,23 +65,11 @@ fn main() -> ExitCode {
         }
     }
 
-    let mut max_log = log::LevelFilter::Info;
-    if cli.global_opts.quiet {
-        max_log = log::LevelFilter::Off;
-    } else if cli.global_opts.verbose {
-        max_log = log::LevelFilter::Debug;
-    }
-
-    match logger_init(max_log) {
-        Ok(_) => (),
-        Err(e) => {
-            log::error!("Logger initialization failed with {:?}", e);
-            return ExitCode::FAILURE;;
-        }
-    };
-
     match run(cli) {
         Ok(_) => ExitCode::SUCCESS,
-        Err(_) => ExitCode::FAILURE
+        Err(e) => {
+            log::error!("{}", e);
+            ExitCode::FAILURE
+        }
     }
 }
