@@ -30,6 +30,10 @@ pub struct GlobalOpts {
 
     #[arg(short, long, global = true)]
     pub quiet: bool,
+
+    #[arg(short, long)]
+    /// Provide a token. This will bypass the client auth process.
+    pub token: Option<String>,
 }
 
 #[derive(Subcommand)]

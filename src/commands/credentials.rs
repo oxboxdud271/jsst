@@ -11,10 +11,6 @@ use uuid::Uuid;
 #[derive(Args)]
 pub struct BootstrapArgs {
     #[arg(short, long)]
-    /// Token with sufficient permission to onboard host to Vault
-    pub token: String,
-
-    #[arg(short, long)]
     /// Re-bootstrap a existing host
     pub force: bool,
 
@@ -71,13 +67,19 @@ impl JSSTCommand<CredentialsCommandStruct> for CredentialsCommand {
     fn execute(commands: CredentialsCommandStruct, opts: GlobalOpts) -> GenericErr {
         let output_dir = Path::new(&opts.output);
         let config_path = output_dir.join("credentials.json");
+        let token = opts.token.clone();
         let cmd = Self {
             commands,
             opts,
             config_path,
         };
         match &cmd.commands.command {
-            CliCommandEnum::Bootstrap(a) => cmd.bootstrap(a),
+            CliCommandEnum::Bootstrap(a) => {
+                match {token} {
+                    None => {log::error!("Missing token for bootstrap");}
+                    Some(t) => cmd.bootstrap(a, &t)
+                }
+            },
             CliCommandEnum::Show => cmd.show(),
             CliCommandEnum::Refresh(a) => cmd.refresh(a.force),
         }
@@ -204,7 +206,7 @@ impl CredentialsCommand {
         refresh
     }
 
-    fn bootstrap(&self, args: &BootstrapArgs) {
+    fn bootstrap(&self, args: &BootstrapArgs, token: &String) {
         let mut should_bootstrap = false;
         let mut machine_id = Uuid::new_v4();
         let c_time = get_epoch();
@@ -221,7 +223,7 @@ impl CredentialsCommand {
                 should_bootstrap = true;
             }
         }
-        log::debug!("Token: {}", args.token);
+        log::debug!("Token: {}", token);
         log::debug!("Continue Bootstrap?: {}", should_bootstrap);
         if !should_bootstrap && !args.force {
             log::info!("Host already bootstrapped. Exiting.");
@@ -244,7 +246,7 @@ impl CredentialsCommand {
 
         let client = VaultClientBuilder::new()
             .url(&self.opts.server)
-            .token(&args.token)
+            .token(&token)
             .build();
         match client {
             Ok(c) => {
@@ -275,7 +277,7 @@ impl CredentialsCommand {
 
                 log::debug!("Attempting login with new credentials...");
                 // Attempt login to test credentials and create entity info
-                match Self::login_to_vault(&self.opts.server, &new_data) {
+                match Self::login_to_vault(&self.opts, &new_data) {
                     Ok(c) => c,
                     Err(e) => {
                         log::error!("{}", e);
@@ -319,7 +321,7 @@ impl CredentialsCommand {
                     log::info!("Refresh not needed. Use --force to perform action anyway.");
                     return;
                 }
-                let app_role_client = match Self::login_to_vault(&self.opts.server, &c) {
+                let app_role_client = match Self::login_to_vault(&self.opts, &c) {
                     Ok(c) => c,
                     Err(e) => {
                         log::error!("{}", e);

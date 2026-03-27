@@ -77,19 +77,30 @@ pub trait JSSTCommand<C> {
     }
 
     fn login_to_vault(
-        url: &String,
+        opts: &GlobalOpts,
         cfg: &CredentialConfigData,
     ) -> Result<VaultClient, Box<dyn Error>> {
-        let app_role_client_builder = VaultClientBuilder::new()
-            .url(url)
-            .auth_mount(&cfg.auth_mount)
-            .login(&cfg.role_id, &cfg.secret_id);
+        let mut cb = VaultClientBuilder::new()
+            .url(&opts.server)
+            .auth_mount(&cfg.auth_mount);
 
-        match app_role_client_builder {
-            Ok(c) => match c.build() {
-                Ok(c) => Ok(c),
-                Err(e) => Err(format!("Failed to build Vault client: [{}]", e).into()),
-            },
+        match &opts.token {
+            None => {
+                match cb.login(&cfg.role_id, &cfg.secret_id) {
+                    Ok(c) => {
+                        cb = c
+                    }
+                    Err(e) => {
+                        return Err(format!("Failed to build Vault client: [{}]", e).into())
+                    }
+                }
+            }
+            Some(s) => {
+                cb = cb.token(&s);
+            }
+        }
+        match cb.build() {
+            Ok(c) => Ok(c),
             Err(e) => Err(format!("Failed to build Vault client: [{}]", e).into()),
         }
     }

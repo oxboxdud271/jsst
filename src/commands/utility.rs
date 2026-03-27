@@ -27,6 +27,9 @@ struct DataKeyArgs {
 enum CliCommandEnum {
     /// Retrieve Vault Data Key
     DataKey(DataKeyArgs),
+
+    /// Return a valid Vault token using system credentials
+    Login
 }
 
 #[derive(Args)]
@@ -49,14 +52,21 @@ impl JSSTCommand<UtilityCommandStruct> for UtilityCommand {
             |cmd, cfg| {
                 Ok(match &cmd.commands.command {
                     CliCommandEnum::DataKey(a) => Self::get_data_key(cmd, a, cfg)?,
+                    CliCommandEnum::Login => Self::login(cmd, cfg)?
                 })
             }
         )?)
     }
 }
 impl UtilityCommand {
+    fn login(&self, cfg: &CredentialConfigData) -> GenericErr {
+        let client = Self::login_to_vault(&self.opts, &cfg)?;
+        println!("{}", client.token);
+        Ok(())
+    }
+
     fn get_data_key(&self, args: &DataKeyArgs, cfg: &CredentialConfigData) -> GenericErr {
-        let client = Self::login_to_vault(&self.opts.server, &cfg)?;
+        let client = Self::login_to_vault(&self.opts, &cfg)?;
         let data_key = client.post(
             &String::from(format!("/v1/transit/datakey/plaintext/{}", &args.key_name)),
             &json!({

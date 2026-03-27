@@ -7,6 +7,10 @@ use std::time::Duration;
 pub struct VaultClient {
     server_url: String,
     client: reqwest::blocking::Client,
+
+    /// Token that is in X-Vault-Token header.
+    /// Should only be used in short scripts where vault is called multiple times
+    pub token: String,
 }
 
 impl VaultClient {
@@ -100,6 +104,7 @@ impl VaultClientBuilder {
         headers.insert("X-Vault-Token", token_str);
         Ok(VaultClient {
             server_url: self.url,
+            token: self.token,
             client: HttpClient::builder()
                 .timeout(Duration::from_secs(10))
                 .default_headers(headers)

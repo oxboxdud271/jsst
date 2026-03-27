@@ -138,7 +138,7 @@ impl AWSCommand {
     }
 
     fn setup(&self, args: &SetupArgs, cfg: &CredentialConfigData) -> GenericErr {
-        let client = Self::login_to_vault(&self.opts.server, &cfg)?;
+        let client = Self::login_to_vault(&self.opts, &cfg)?;
         match Self::get_role(&client, &cfg.machine_uuid) {
             Ok(_) => {
                 if !args.force {
@@ -219,7 +219,7 @@ impl AWSCommand {
                 log::info!("Cache miss: [{}]", e)
             }
         }
-        let client = Self::login_to_vault(&self.opts.server, &cfg)?;
+        let client = Self::login_to_vault(&self.opts, &cfg)?;
         let new_creds = Self::get_fresh_aws_keys(&client, &cfg.machine_uuid)?;
         match Self::write_config(&cache_path, &new_creds) {
             Ok(_) => {
