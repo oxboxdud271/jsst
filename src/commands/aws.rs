@@ -91,9 +91,9 @@ impl JSSTCommand<AWSCommandStruct> for AWSCommand {
             &cmd.opts,
             |cmd, cfg| {
                 Ok(match &cmd.commands.command {
-                    CliCommandEnum::Setup(a) => Self::setup(cmd, &a, cfg),
+                    CliCommandEnum::Setup(a) => Self::setup(cmd, &a, cfg)?,
                     CliCommandEnum::Retrieve(a) => Self::retrieve(cmd, &a, cfg),
-                    CliCommandEnum::Run(a) => Self::run(cmd, &a, cfg)
+                    CliCommandEnum::Run(a) => Self::run(cmd, &a, cfg)?
                 })
             }
         )?)
@@ -137,19 +137,13 @@ impl AWSCommand {
         Ok(())
     }
 
-    fn setup(&self, args: &SetupArgs, cfg: &CredentialConfigData) {
-        let client = match Self::login_to_vault(&self.opts.server, &cfg) {
-            Ok(c) => c,
-            Err(e) => {
-                log::error!("{}", e);
-                return;
-            }
-        };
+    fn setup(&self, args: &SetupArgs, cfg: &CredentialConfigData) -> GenericErr {
+        let client = Self::login_to_vault(&self.opts.server, &cfg)?;
         match Self::get_role(&client, &cfg.machine_uuid) {
             Ok(_) => {
                 if !args.force {
                     log::info!("Role already exists in the Vault. Use --force to re-create");
-                    return;
+                    return Ok(());
                 }
             }
             Err(_) => {
@@ -161,7 +155,7 @@ impl AWSCommand {
                 log::info!("Role created successfully");
             }
             Err(e) => {
-                log::error!("Role creation failed: [{}]", e)
+                return Err(format!("Role creation failed: [{}]", e).into());
             }
         }
         match self.create_config_file() {
@@ -169,12 +163,13 @@ impl AWSCommand {
                 log::info!("AWS config created successfully");
             }
             Err(e) => {
-                log::error!("Create config file failed: [{}]", e)
+                return Err(format!("Create config file failed: [{}]", e).into());
             }
         }
+        Ok(())
     }
 
-    fn get_cache_credential(&self, path: &PathBuf) -> Result<AWSCredentialData, Box<dyn Error>> {
+    fn get_cache_credential(path: &PathBuf) -> Result<AWSCredentialData, Box<dyn Error>> {
         let c_time = DateTime::from_timestamp_secs(get_epoch() as i64).unwrap();
         let cfg = Self::read_config::<AWSCredentialData>(&path)?;
         let cache_expire = cfg.expiration.parse::<DateTime<Utc>>()?;
@@ -184,11 +179,34 @@ impl AWSCommand {
         Ok(cfg)
     }
 
-
-    fn get_credentials(&self, cfg: &CredentialConfigData, use_cache: bool) -> Result<AWSCredentialData, Box<dyn Error>> {
-        let mut cache_path = PathBuf::from(&self.opts.output);
+    fn cache_path(path: &String) -> PathBuf {
+        let mut cache_path = PathBuf::from(&path);
         cache_path.push("aws/cred_cache.json");
-        match self.get_cache_credential(&cache_path) {
+        cache_path
+    }
+
+    pub fn get_fresh_aws_keys(client: &VaultClient, machine_uuid: &Uuid) -> GenericErr<AWSCredentialData> {
+        let role_name = Self::get_role_name(&machine_uuid);
+        let aws_creds = client.post(
+            &String::from(format!("/v1/aws/sts/{}", role_name)),
+            &json!({
+                "role_session_name": &machine_uuid
+            })
+        )?;
+        let cred_ttl = aws_creds["data"]["ttl"].as_u64().unwrap();
+        let dt = DateTime::from_timestamp_secs((get_epoch() + cred_ttl) as i64).unwrap();
+        Ok(AWSCredentialData {
+            access_key_id: json_to_string(&aws_creds["data"]["access_key"]),
+            expiration: format!("{:?}", dt),
+            secret_access_key:  json_to_string(&aws_creds["data"]["secret_key"]),
+            session_token:  json_to_string(&aws_creds["data"]["session_token"]),
+            version: 1,
+        })
+    }
+
+    fn get_credentials(&self, cfg: &CredentialConfigData, use_cache: bool) -> GenericErr<AWSCredentialData> {
+        let cache_path = Self::cache_path(&self.opts.output);
+        match Self::get_cache_credential(&cache_path) {
             Ok(data) => {
                 if use_cache {
                     log::info!("Returning cached AWS credentials");
@@ -201,40 +219,17 @@ impl AWSCommand {
                 log::info!("Cache miss: [{}]", e)
             }
         }
-        let client = match Self::login_to_vault(&self.opts.server, &cfg) {
-            Ok(c) => c,
-            Err(e) => return Err(e)
-        };
-        let role_name = Self::get_role_name(&cfg.machine_uuid);
-        let get_credentials = client.post(
-            &String::from(format!("/v1/aws/sts/{}", role_name)),
-            &json!({
-                "role_session_name": &cfg.machine_uuid
-            })
-        );
-        match get_credentials {
-            Ok(creds) => {
-                let cred_ttl = creds["data"]["ttl"].as_u64().unwrap();
-                let dt = DateTime::from_timestamp_secs((get_epoch() + cred_ttl) as i64).unwrap();
-                let new_creds = AWSCredentialData {
-                    access_key_id: json_to_string(&creds["data"]["access_key"]),
-                    expiration: format!("{:?}", dt),
-                    secret_access_key:  json_to_string(&creds["data"]["secret_key"]),
-                    session_token:  json_to_string(&creds["data"]["session_token"]),
-                    version: 1,
-                };
-                match Self::write_config(&cache_path, &new_creds) {
-                    Ok(_) => {
-                        log::info!("Successfully cached AWS Credentials.");
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to cache AWS Credentials: [{}]", e)
-                    }
-                }
-                Ok(new_creds)
+        let client = Self::login_to_vault(&self.opts.server, &cfg)?;
+        let new_creds = Self::get_fresh_aws_keys(&client, &cfg.machine_uuid)?;
+        match Self::write_config(&cache_path, &new_creds) {
+            Ok(_) => {
+                log::info!("Successfully cached AWS Credentials.");
             }
-            Err(e) => Err(e)
+            Err(e) => {
+                log::warn!("Failed to cache AWS Credentials: [{}]", e)
+            }
         }
+        Ok(new_creds)
     }
 
     fn retrieve(&self, args: &RetrieveArgs, cfg: &CredentialConfigData) {
@@ -259,18 +254,10 @@ impl AWSCommand {
         Ok(())
     }
 
-    fn run(&self, args: &RunArgs, cfg: &CredentialConfigData) {
-        match self.get_credentials(cfg, true) {
-            Ok(creds) => {
-                log::info!("Command: {:?}", args.cmd);
-                match {Self::start_cmd_process(&creds, &args.cmd) } {
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::warn!("Failed to start command process: [{}]", e)
-                    }
-                }
-            }
-            Err(e) => log::warn!("Failed to retrieve credentials: [{}]", e)
-        }
+    fn run(&self, args: &RunArgs, cfg: &CredentialConfigData) -> GenericErr {
+        let creds =  self.get_credentials(cfg, true)?;
+        log::info!("Command: {:?}", args.cmd);
+        Self::start_cmd_process(&creds, &args.cmd)?;
+        Ok(())
     }
 }
