@@ -2,6 +2,7 @@ use crate::commands::aws::AWSCommandStruct;
 use crate::commands::credentials::CredentialsCommandStruct;
 use crate::commands::passwd::PasswdCommandStruct;
 use clap::{Args, Parser, Subcommand};
+use crate::commands::backup::BackupCommandStruct;
 use crate::commands::utility::UtilityCommandStruct;
 
 #[derive(Parser)]
@@ -58,5 +59,7 @@ pub enum PrimaryCommandEnum {
     /// Manage AWS Credentials
     AWS(AWSCommandStruct),
     /// Utility Functions
-    Utility(UtilityCommandStruct)
+    Utility(UtilityCommandStruct),
+    /// Simple Backup
+    Backup(BackupCommandStruct)
 }

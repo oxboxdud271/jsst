@@ -29,6 +29,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         args::PrimaryCommandEnum::Utility(c) => {
             commands::utility::UtilityCommand::execute(c, cli.global_opts)?
         }
+        args::PrimaryCommandEnum::Backup(c) => {
+            commands::backup::BackupCommand::execute(c, cli.global_opts)?
+        }
     })
 }
 
