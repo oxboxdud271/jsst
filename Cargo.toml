@@ -10,8 +10,13 @@ uuid = { version = "1.22.0", features = ["serde", "v4"]}
 clap = { version = "4.0", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 reqwest = { version = "0.13", features = ["json", "blocking"] }
+tokio = { version = "1.50.0", features = ["full"] }
+aws-credential-types = { version = "1.2.14", features = ["hardcoded-credentials"]}
 serde_json = "1.0"
 chrono = "0.4.44"
 log = "0.4.29"
 rand = "0.9.2"
 yescrypt = "0.1.0-rc.5"
+zip = "8.4.0"
+aws-config = "1.8.15"
+aws-sdk-s3 = "1.127.0"

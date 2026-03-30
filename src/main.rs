@@ -12,6 +12,8 @@ pub mod commands;
 pub mod util;
 mod vault;
 pub mod logging;
+pub mod iam_credentials;
+
 
 
 fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
@@ -34,6 +36,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
     })
 }
+
 
 fn main() -> ExitCode {
     let cli = args::Cli::parse();

@@ -2,8 +2,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use serde_json::json;
 use crate::args::GlobalOpts;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
-use crate::util::{json_to_string, GenericErr};
-
+use crate::util::{retrieve_data_key_from_vault, GenericErr};
 
 #[derive(Clone, ValueEnum)]
 enum DataKeyOutputMode {
@@ -67,23 +66,18 @@ impl UtilityCommand {
 
     fn get_data_key(&self, args: &DataKeyArgs, cfg: &CredentialConfigData) -> GenericErr {
         let client = Self::login_to_vault(&self.opts, &cfg)?;
-        let data_key = client.post(
-            &String::from(format!("/v1/transit/datakey/plaintext/{}", &args.key_name)),
-            &json!({
-                "bits": args.key_size
-            })
-        )?;
+        let data_key = retrieve_data_key_from_vault(&client, &args.key_name, &args.key_size)?;
         match args.mode {
             DataKeyOutputMode::JSON => {
                 let json = json!({
-                    "plaintext": data_key["data"]["plaintext"],
-                    "ciphertext": data_key["data"]["ciphertext"]
+                    "plaintext": data_key.plaintext,
+                    "ciphertext": data_key.ciphertext
                 });
                 println!("{}", serde_json::to_string_pretty(&json).unwrap());
             }
             DataKeyOutputMode::Env => {
-                println!("PLAINTEXT={}", json_to_string(&data_key["data"]["plaintext"]));
-                println!("CIPHERTEXT={}", json_to_string(&data_key["data"]["ciphertext"]));
+                println!("PLAINTEXT={}", data_key.plaintext);
+                println!("CIPHERTEXT={}", data_key.ciphertext);
             }
         }
         Ok(())
