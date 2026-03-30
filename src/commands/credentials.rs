@@ -5,6 +5,7 @@ use crate::vault::{VaultClient, VaultClientBuilder};
 use clap::{Args, Subcommand};
 use serde_json::json;
 use std::error::Error;
+use std::io::Error as IoError;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -105,7 +106,7 @@ impl CredentialsCommand {
             }),
         )?;
         if app_role.get("error").is_some() {
-            return Err(app_role["error"]["message"].as_str().unwrap().into());
+            return Err(format!("{}", app_role["error"]["message"]).into())
         }
 
         log::info!("Retrieving App Role ID...");
@@ -114,7 +115,7 @@ impl CredentialsCommand {
             auth_mount, machine_id
         )))?;
         if role_id.get("error").is_some() {
-            return Err(app_role["error"]["message"].as_str().unwrap().into());
+            return Err(format!("{}", role_id["error"]["message"]).into())
         }
         Ok(String::from(role_id["data"]["role_id"].as_str().unwrap()))
     }
@@ -125,16 +126,21 @@ impl CredentialsCommand {
         client: &VaultClient,
         machine_id: Uuid,
         role_id: &String,
-        alias_mount: &String,
-    ) -> Result<EntityInfo, Box<dyn Error>> {
+        auth_id: &String,
+    ) -> GenericErr<EntityInfo> {
         log::info!("Retrieving Entity...");
         let entity_lookup = client.post(
             &String::from("/v1/identity/lookup/entity"),
             &json!({
                 "alias_name": role_id,
-                "alias_mount_accessor": alias_mount
+                "alias_mount_accessor": auth_id
             }),
         )?;
+        log::debug!("Entity Info: {}", entity_lookup);
+        if entity_lookup.get("data").is_none() {
+            return Err(Box::from("Entity lookup returned no results"))
+        }
+
         let entity_info = EntityInfo {
             id: String::from(entity_lookup["data"]["id"].as_str().unwrap()),
             name: String::from(entity_lookup["data"]["name"].as_str().unwrap()),
@@ -172,9 +178,9 @@ impl CredentialsCommand {
                 auth_mount, machine_id
             )),
             &json!({ "secret_id": machine_id }),
-        )?;
+        )?; 
         if secret_id.get("error").is_some() {
-            return Err(secret_id["error"]["message"].as_str().unwrap().into());
+            return Err(format!("{}", secret_id["error"]["message"]).into())
         }
         Ok(SecretIDPair {
             id: String::from(secret_id["data"]["secret_id"].as_str().unwrap()),
@@ -206,105 +212,98 @@ impl CredentialsCommand {
         refresh
     }
 
-    fn bootstrap(&self, args: &BootstrapArgs, token: &String) {
-        let mut should_bootstrap = false;
-        let mut machine_id = Uuid::new_v4();
+    fn run_bootstrap(&self, cfg: &mut CredentialConfigData, args: &BootstrapArgs, token: &String) -> GenericErr {
         let c_time = get_epoch();
-        match Self::read_config::<CredentialConfigData>(&self.config_path) {
-            Ok(c) => {
-                machine_id = c.machine_uuid;
-                should_bootstrap = self.refresh_needed(&c)
-            }
+        let client = VaultClientBuilder::new().token(&token).build()?;
+
+        // Process App Role
+        if cfg.role_id.is_empty() {
+            cfg.role_id = self.get_role_id(&client, cfg.machine_uuid, &args.auth_mount)?;
+        } else {
+            log::info!("Role ID already present in config. Skipping...");
+        }
+
+        // Process Secret ID
+        if cfg.secret_id.is_empty() {
+            let secret_data = self.get_secret_id(&client, cfg.machine_uuid, &args.auth_mount)?;
+            log::debug!("New Secret ID TTL: {}", secret_data.id_ttl);
+            cfg.secret_id = secret_data.id;
+            cfg.secret_id_accessor = secret_data.accessor;
+            cfg.expiration = c_time + secret_data.id_ttl;
+        } else {
+            log::info!("Secret ID already present in config. Skipping...");
+        }
+
+
+        log::info!("Attempting login with new credentials...");
+        // Attempt login to test credentials and create entity info
+        VaultClientBuilder::new().login(&cfg.role_id, &cfg.secret_id)?;
+
+        // Process Entity ID
+        let entity_data = self.update_entity(&client, cfg.machine_uuid, &cfg.role_id, &args.auth_id)?;
+        cfg.entity_id = entity_data.id;
+        cfg.entity_name = entity_data.name;
+
+        Ok(())
+    }
+
+    fn bootstrap(&self, args: &BootstrapArgs, token: &String) {
+        let mut cfg = match Self::read_config::<CredentialConfigData>(&self.config_path) {
+            Ok(c) => c,
             Err(e) => {
                 log::warn!("Failed to read config: {}", e);
-                if !args.force {
-                    return;
+                let last_error = IoError::last_os_error();
+                match last_error.kind() {
+                    std::io::ErrorKind::PermissionDenied => {
+                        log::error!("Insufficient permissions to read config");
+                        return;
+                    }
+                    _ => log::warn!("Failed to read config: {}", e)
                 }
-                should_bootstrap = true;
+                let new_cfg = CredentialConfigData {
+                    machine_uuid: Uuid::new_v4(),
+                    ..Default::default()
+                };
+                new_cfg
             }
+        };
+
+        let mut need_bootstrap = false;
+        let c_time = get_epoch();
+        if !cfg.bootstrapped {
+            need_bootstrap = true
         }
-        log::debug!("Token: {}", token);
-        log::debug!("Continue Bootstrap?: {}", should_bootstrap);
-        if !should_bootstrap && !args.force {
+        if cfg.expiration - c_time <= 0 {
+            need_bootstrap = true;
+        }
+        if !need_bootstrap && !args.force {
             log::info!("Host already bootstrapped. Exiting.");
             return;
         }
         if args.force {
-            log::info!("New bootstrap forced with --force")
+            log::info!("New bootstrap forced with --force");
+
+            // Re-use the machine UUID
+            cfg =  CredentialConfigData {
+                machine_uuid: cfg.machine_uuid,
+                ..Default::default()
+            };
         }
-        let mut new_data = CredentialConfigData {
-            role_id: String::new(),
-            secret_id: String::new(),
-            secret_id_accessor: String::new(),
-            entity_id: String::new(),
-            entity_name: String::new(),
-            expiration: c_time,
-            machine_uuid: machine_id,
-            bootstrapped: true,
-            auth_mount: args.auth_mount.clone(),
-        };
 
-        let client = VaultClientBuilder::new()
-            .url(&self.opts.server)
-            .token(&token)
-            .build();
-        match client {
-            Ok(c) => {
-                // Process App Role
-                match self.get_role_id(&c, machine_id, &args.auth_mount) {
-                    Ok(role_id) => {
-                        new_data.role_id = role_id;
-                    }
-                    Err(e) => {
-                        log::error!("Failed to bootstrap App Role: [{}]", e);
-                        return;
-                    }
-                }
-
-                // Process Secret ID
-                match self.get_secret_id(&c, machine_id, &args.auth_mount) {
-                    Ok(id) => {
-                        log::debug!("New Secret ID TTL: {}", id.id_ttl);
-                        new_data.secret_id = id.id;
-                        new_data.secret_id_accessor = id.accessor;
-                        new_data.expiration = c_time + id.id_ttl;
-                    }
-                    Err(e) => {
-                        log::error!("Failed to bootstrap Secret ID: [{}]", e);
-                        return;
-                    }
-                }
-
-                log::debug!("Attempting login with new credentials...");
-                // Attempt login to test credentials and create entity info
-                match Self::login_to_vault(&self.opts, &new_data) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        log::error!("{}", e);
-                        return;
-                    }
-                };
-
-                // Process Entity ID
-                match self.update_entity(&c, machine_id, &new_data.role_id, &args.auth_id) {
-                    Ok(e) => {
-                        new_data.entity_id = e.id;
-                        new_data.entity_name = e.name
-                    }
-                    Err(e) => {
-                        log::error!("Failed to bootstrap Entity ID: [{}]", e);
-                        return;
-                    }
-                }
+        log::info!("Machine ID: {}", &cfg.machine_uuid);
+        match self.run_bootstrap(&mut cfg, &args, token) {
+            Ok(_) => {
+                cfg.auth_mount = args.auth_mount.clone();
+                cfg.bootstrapped = true
             }
             Err(e) => {
-                log::error!("Failed to generate new client: [{}]", e);
-                return;
+                log::error!("Failed bootstrap: {}", e);
+                log::info!("Bootstrap failed. Writing existing data to disk!");
             }
         }
 
         // Write Config to Disk
-        match self.write_config_to_disk(&new_data) {
+        match self.write_config_to_disk(&cfg) {
             Ok(_) => {}
             Err(e) => {
                 log::error!("{}", e);

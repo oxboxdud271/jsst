@@ -11,7 +11,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use uuid::Uuid;
 
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct CredentialConfigData {
     pub role_id: String,
     pub secret_id: String,

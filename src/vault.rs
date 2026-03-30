@@ -50,11 +50,11 @@ pub struct VaultClientBuilder {
 }
 
 impl VaultClientBuilder {
-    pub fn  new() -> Self {
+    pub fn new() -> Self {
         Self {
             token: String::new(),
-            url: String::new(),
-            auth_mount: String::new(),
+            url: String::from("https://vault.jdn-lab.com"),
+            auth_mount: String::from("jsst"),
         }
     }
 
@@ -88,8 +88,9 @@ impl VaultClientBuilder {
             .json(&json!({ "role_id": role_id, "secret_id": secret_id }))
             .send()?;
         if !resp.status().is_success() {
-            Err("Login failed")?
+            return Err(format!("Login Failed - {}", &resp.text()?).into());
         }
+
         let resp_json: Value = resp.json()?;
         let token = resp_json["auth"]["client_token"].as_str().unwrap();
         Ok(VaultClientBuilder {
