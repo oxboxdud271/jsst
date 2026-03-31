@@ -2,7 +2,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use serde_json::json;
 use crate::args::GlobalOpts;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
-use crate::util::{retrieve_data_key_from_vault, GenericErr};
+use crate::util::{VaultDataKey, GenericErr};
 
 #[derive(Clone, ValueEnum)]
 enum DataKeyOutputMode {
@@ -66,7 +66,7 @@ impl UtilityCommand {
 
     fn get_data_key(&self, args: &DataKeyArgs, cfg: &CredentialConfigData) -> GenericErr {
         let client = Self::login_to_vault(&self.opts, &cfg)?;
-        let data_key = retrieve_data_key_from_vault(&client, &args.key_name, &args.key_size)?;
+        let data_key = VaultDataKey::retrieve_data_key(&client, &args.key_name, &args.key_size)?;
         match args.mode {
             DataKeyOutputMode::JSON => {
                 let json = json!({

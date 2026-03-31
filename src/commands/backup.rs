@@ -1,16 +1,20 @@
+use std::fs::File;
+use std::io::Write;
 use clap::{Args, Subcommand};
-use zip::{AesMode, ZipWriter};
-use std::io::Cursor;
+use tar::Builder;
 use aws_config::BehaviorVersion;
 use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::{Client, Error as S3Error};
 use aws_sdk_s3::operation::put_object::PutObjectOutput;
 use aws_sdk_s3::primitives::{ByteStream, SdkBody};
-use zip::write::SimpleFileOptions;
+use aes_gcm::{AeadCore, Aes256Gcm};
+use aes_gcm::aead::{Aead, KeyInit, OsRng};
+use flate2::GzBuilder;
+use flate2::Compression;
 use crate::args::GlobalOpts;
 use crate::iam_credentials::JdnAwsIamCredentials;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
-use crate::util::{retrieve_data_key_from_vault, GenericErr};
+use crate::util::{GenericErr, VaultDataKey};
 
 #[derive(Subcommand)]
 pub enum CliCommandEnum {
@@ -61,43 +65,72 @@ impl BackupCommand {
             .await;
 
         let client = Client::new(&config);
-        Ok(client.put_object()
+        let resp = client.put_object()
             .key(key)
             .bucket("jdn-host-backups-048780619790-us-east-1-an")
             .body(ByteStream::new(SdkBody::from(data)))
             .metadata("vault-data-key", data_key)
             .send()
-            .await?
-        )
+            .await?;
+        log::info!("Upload successful");
+        Ok(resp)
     }
 
-    fn default_options() -> SimpleFileOptions {
-        SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Bzip2)
+    fn finish_tar(tar_data: Builder<&mut Vec<u8>>, data_key: &VaultDataKey) -> GenericErr<Vec<u8>> {
+        log::info!("Compressing archive");
+        let mut gz = GzBuilder::new()
+            .write(Vec::new(), Compression::default());
+        gz.write_all(&tar_data.into_inner()?)?;
+        log::info!("Encrypting archive");
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let tar_data: &[u8] = &gz.finish()?;
+        let cipher = Aes256Gcm::new(&data_key.to_aes_256_key()?);
+        let encrypted_tar = cipher.encrypt(&nonce, tar_data).unwrap();
+        Ok(encrypted_tar)
     }
 
 
     fn backup_jdn(&self, cfg: &CredentialConfigData) -> GenericErr {
         // Get Data Key
         let client = Self::login_to_vault(&self.opts, &cfg)?;
-        let data_key = retrieve_data_key_from_vault(&client, "jdn-host-backup", &256)?;
+        log::info!("Retrieving new encryption data key");
+        let data_key = VaultDataKey::retrieve_data_key(&client, "jdn-host-backup", &256)?;
 
         // Build ZIP File
-        let mut cursor = Cursor::new(Vec::new());
-        let mut archive = ZipWriter::new(&mut cursor);
-        let options = Self::default_options();
-        archive.add_directory_from_path(&self.opts.output, options)?;
-        archive.finish()?;
+        log::info!("Adding [{}] to archive", &self.opts.output);
+        let mut mem_buf = Vec::new();
+        let mut archive = Builder::new(&mut mem_buf);
+        for entry in walkdir::WalkDir::new(&self.opts.output) {
+            match entry {
+                Ok(e) => {
+                    log::debug!("Archiving - {:?}", e.path());
+                    let e_md = e.metadata().expect("metadata");
+                    if e_md.is_dir() {
+                        continue
+                    }
+                    let file_path = e.path().strip_prefix(&self.opts.output)?;
+                    let mut e_file = File::open(e.path())?;
+                    archive.append_file(file_path, &mut e_file)?;
+                },
+                Err(e) => {
+                    log::warn!("Failed to archive {:?} - {}", e.path(), e);
+                }
+            }
+        }
+
+        // Compressing and Encrypting TAR
+        let encrypted_tar = Self::finish_tar(archive, &data_key)?;
+
 
         // Upload to S3
         let credentials = JdnAwsIamCredentials::new(
             &client, &cfg.machine_uuid, &self.opts.output, true
         )?;
-        let obj_key = format!("{}/jdn-var.zip", cfg.machine_uuid);
+        let obj_key = format!("{}/jdn-var.tar.encrypted", cfg.machine_uuid);
         let rt  = tokio::runtime::Runtime::new()?;
         let _ = rt.block_on(async {
             let resp = Self::upload_data_to_s3(
-                cursor.into_inner(),
+                encrypted_tar,
                 &data_key.ciphertext,
                 &obj_key,
                 &credentials
