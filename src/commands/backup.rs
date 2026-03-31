@@ -4,8 +4,9 @@ use clap::{Args, Subcommand};
 use tar::Builder;
 use aws_config::BehaviorVersion;
 use aws_config::meta::region::RegionProviderChain;
-use aws_sdk_s3::{Client, Error as S3Error};
+use aws_sdk_s3::{Client as S3Client, Error as S3Error};
 use aws_sdk_s3::operation::put_object::PutObjectOutput;
+use aws_sdk_s3::operation::get_object::GetObjectOutput;
 use aws_sdk_s3::primitives::{ByteStream, SdkBody};
 use aes_gcm::{AeadCore, Aes256Gcm};
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
@@ -14,24 +15,53 @@ use flate2::Compression;
 use crate::args::GlobalOpts;
 use crate::iam_credentials::JdnAwsIamCredentials;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
-use crate::util::GenericErr;
+use crate::util::{GenericErr, BACKUP_BUCKET};
 use crate::data_key::VaultDataKey;
+
+
+#[derive(Subcommand)]
+pub enum BackupAreas {
+    /// JDN Directory
+    JDN,
+    /// LUKS Header
+    LUKS
+}
+
+
+#[derive(Args)]
+pub struct DownloadCommandArgs {
+    /// S3 Object key
+    #[arg(long)]
+    pub obj_key: String,
+
+    /// S3 Object version
+    #[arg(long)]
+    pub obj_ver: Option<String>,
+
+    /// Destination
+    #[arg(long, default_value = ".")]
+    pub dest: String,
+}
+
+#[derive(Args)]
+pub struct UploadCommandArgs {
+    #[command(subcommand)]
+    pub area: BackupAreas
+}
+
 
 #[derive(Subcommand)]
 pub enum CliCommandEnum {
-    /// Backup JDN Directory
-    JDN,
-    /// Backup LUKS Header
-    LUKS
+    /// Download, decompress, and decrypt archive. Does not extract!
+    Download(DownloadCommandArgs),
+    /// Gather and upload data to S3
+    Upload(UploadCommandArgs)
 }
 
 #[derive(Args)]
 pub struct BackupCommandStruct {
     #[command(subcommand)]
     pub command: CliCommandEnum,
-
-    #[arg(long, default_value = "server-admin")]
-    username: String,
 }
 
 pub struct BackupCommand {
@@ -45,36 +75,66 @@ impl JSSTCommand<BackupCommandStruct> for BackupCommand {
         Ok(Self::command_wrapper(
             &cmd,
             &cmd.opts,
-            |cmd, cfg| {
-                match &cmd.cli.command {
-                    CliCommandEnum::JDN => Self::backup_jdn(&cmd, &cfg),
-                    CliCommandEnum::LUKS => todo!()
-                }
-            }
+            Self::run
         )?)
     }
 }
 
 impl BackupCommand {
-    async fn upload_data_to_s3(data: Vec<u8>, data_key: &str, key: &str, creds: &JdnAwsIamCredentials) -> Result<PutObjectOutput, S3Error> {
-        log::info!("Uploading data to S3 - {}", key);
+    async fn build_s3_client(creds: &JdnAwsIamCredentials) -> S3Client {
         let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
         let config = aws_config::defaults(BehaviorVersion::latest())
             .region(region_provider)
             .credentials_provider(creds.to_provider())
             .load()
             .await;
+        S3Client::new(&config)
+    }
 
-        let client = Client::new(&config);
+    async fn upload_data_to_s3(data: Vec<u8>, data_key: &str, key: &str, creds: &JdnAwsIamCredentials) -> Result<PutObjectOutput, S3Error> {
+        log::info!("Uploading data to S3 - {}", key);
+        let client = Self::build_s3_client(creds).await;
         let resp = client.put_object()
             .key(key)
-            .bucket("jdn-host-backups-048780619790-us-east-1-an")
+            .bucket(BACKUP_BUCKET)
             .body(ByteStream::new(SdkBody::from(data)))
             .metadata("vault-data-key", data_key)
             .send()
             .await?;
         log::info!("Upload successful");
         Ok(resp)
+    }
+
+    async fn retrieve_from_s3(key: &str, version: Option<&str>, creds: &JdnAwsIamCredentials) -> GenericErr<GetObjectOutput> {
+        let client = Self::build_s3_client(creds).await;
+        let mut req = client.get_object()
+            .key(key)
+            .bucket(BACKUP_BUCKET);
+        match version {
+            Some(version) => {
+                req = req.version_id(version);
+            }
+            None => {}
+        }
+        let resp = req.send().await?;
+        log::info!("Retrieved [{}] successfully", key);
+        Ok(resp)
+    }
+
+    fn run(cmd: &Self, cfg: &CredentialConfigData) -> GenericErr {
+        match &cmd.cli.command {
+            CliCommandEnum::Upload(c) => Self::match_upload(&cmd, &cfg, &c)?,
+            CliCommandEnum::Download(c) => Self::download(&cmd, &cfg, &c)?
+        }
+        Ok(())
+    }
+
+    fn match_upload(&self, cfg: &CredentialConfigData, args: &UploadCommandArgs) -> GenericErr {
+        match args.area {
+            BackupAreas::LUKS => {todo!()}
+            BackupAreas::JDN => {Self::backup_jdn(&self, &cfg)?}
+        }
+        Ok(())
     }
 
     fn finish_tar(tar_data: Builder<&mut Vec<u8>>, data_key: &VaultDataKey) -> GenericErr<Vec<u8>> {
@@ -137,7 +197,25 @@ impl BackupCommand {
                 &credentials
             ).await;
             log::debug!("S3 Upload Response - {:?}", resp);
-        });
+            resp
+        })?;
+        Ok(())
+    }
+
+    fn download(&self, cfg: &CredentialConfigData, args: &DownloadCommandArgs) -> GenericErr {
+        let client = Self::login_to_vault(&self.opts, &cfg)?;
+        let creds = JdnAwsIamCredentials::new(
+            &client, &cfg.machine_uuid, &self.opts.output, true
+        )?;
+        let rt  = tokio::runtime::Runtime::new()?;
+        let resp = rt.block_on(async {
+            let resp = match &args.obj_ver {
+                Some(v) => Self::retrieve_from_s3(&args.obj_key, Option::from(v.as_str()), &creds),
+                None => Self::retrieve_from_s3(&args.obj_key, None, &creds)
+            }.await;
+            log::debug!("S3 Retrieve Response - {:?}", resp);
+            resp
+        })?;
         Ok(())
     }
 }

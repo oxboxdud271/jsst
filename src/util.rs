@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
 pub type GenericErr<T = (), E = Box<dyn Error>> = Result<T, E>;
+pub const BACKUP_BUCKET: &'static str = "jdn-host-backups-048780619790-us-east-1-an";
+
 
 pub fn get_epoch() -> u64 {
     let now = SystemTime::now();
