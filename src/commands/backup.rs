@@ -14,7 +14,8 @@ use flate2::Compression;
 use crate::args::GlobalOpts;
 use crate::iam_credentials::JdnAwsIamCredentials;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
-use crate::util::{GenericErr, VaultDataKey};
+use crate::util::GenericErr;
+use crate::data_key::VaultDataKey;
 
 #[derive(Subcommand)]
 pub enum CliCommandEnum {

@@ -2,7 +2,8 @@ use clap::{Args, Subcommand, ValueEnum};
 use serde_json::json;
 use crate::args::GlobalOpts;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
-use crate::util::{VaultDataKey, GenericErr};
+use crate::util::GenericErr;
+use crate::data_key::VaultDataKey;
 
 #[derive(Clone, ValueEnum)]
 enum DataKeyOutputMode {

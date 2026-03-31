@@ -13,8 +13,7 @@ pub mod util;
 mod vault;
 pub mod logging;
 pub mod iam_credentials;
-
-
+pub mod data_key;
 
 fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     Ok(match cli.command {
