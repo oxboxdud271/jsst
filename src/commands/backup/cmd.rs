@@ -1,6 +1,5 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use clap::{Args, Subcommand};
 use tar::Builder;
 use aws_config::BehaviorVersion;
 use aws_config::meta::region::RegionProviderChain;
@@ -22,56 +21,13 @@ use crate::commands::base::{CredentialConfigData, JSSTCommand};
 use crate::util::{GenericErr, BACKUP_BUCKET};
 use crate::data_key::VaultDataKey;
 
+use crate::commands::backup::args::*;
+
 type NonceVal = GenericArray<u8, U12>;
 
 struct FinishedTar {
     data: Vec<u8>,
     nonce: String,
-}
-
-#[derive(Subcommand)]
-pub enum BackupAreas {
-    /// JDN Directory
-    JDN,
-    /// LUKS Header
-    LUKS
-}
-
-
-#[derive(Args)]
-pub struct DownloadCommandArgs {
-    /// S3 Object key
-    #[arg(long)]
-    pub obj_key: String,
-
-    /// S3 Object version
-    #[arg(long)]
-    pub obj_ver: Option<String>,
-
-    /// Destination
-    #[arg(long, default_value = "./output.tar.gz")]
-    pub dest: String,
-}
-
-#[derive(Args)]
-pub struct UploadCommandArgs {
-    #[command(subcommand)]
-    pub area: BackupAreas
-}
-
-
-#[derive(Subcommand)]
-pub enum CliCommandEnum {
-    /// Download and decrypt archive. Does not extract!
-    Download(DownloadCommandArgs),
-    /// Gather and upload data to S3
-    Upload(UploadCommandArgs)
-}
-
-#[derive(Args)]
-pub struct BackupCommandStruct {
-    #[command(subcommand)]
-    pub command: CliCommandEnum,
 }
 
 pub struct BackupCommand {
@@ -135,7 +91,8 @@ impl BackupCommand {
     fn run(cmd: &Self, cfg: &CredentialConfigData) -> GenericErr {
         match &cmd.cli.command {
             CliCommandEnum::Upload(c) => Self::match_upload(&cmd, &cfg, &c)?,
-            CliCommandEnum::Download(c) => Self::download(&cmd, &cfg, &c)?
+            CliCommandEnum::Download(c) => Self::download(&cmd, &cfg, &c)?,
+            CliCommandEnum::Decrypt => todo!()
         }
         Ok(())
     }

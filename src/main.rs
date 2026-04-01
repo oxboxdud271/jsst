@@ -7,13 +7,13 @@ use std::path::Path;
 use std::process::ExitCode;
 use crate::args::Cli;
 
-pub mod args;
-pub mod commands;
-pub mod util;
+mod args;
+mod commands;
+mod util;
 mod vault;
-pub mod logging;
-pub mod iam_credentials;
-pub mod data_key;
+mod logging;
+mod iam_credentials;
+mod data_key;
 
 fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     Ok(match cli.command {
