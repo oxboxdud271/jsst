@@ -30,6 +30,25 @@ pub struct UploadCommandArgs {
     pub area: BackupAreas
 }
 
+#[derive(Args)]
+pub struct DecryptCommandArgs {
+    /// Encrypted object
+    #[arg(long)]
+    pub src: String,
+
+    /// Decrypted object destination
+    #[arg(long)]
+    pub dest: String,
+
+    /// Vault cipher used to encrypt object
+    #[arg(long)]
+    pub cipher: String,
+
+    /// Nonce in base64
+    #[arg(long)]
+    pub nonce: String
+}
+
 
 #[derive(Subcommand)]
 pub enum CliCommandEnum {
@@ -38,7 +57,7 @@ pub enum CliCommandEnum {
     /// Gather and upload data to S3
     Upload(UploadCommandArgs),
     /// Decrypt an offline backup
-    Decrypt
+    Decrypt(DecryptCommandArgs),
 }
 
 #[derive(Args)]

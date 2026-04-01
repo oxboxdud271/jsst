@@ -65,17 +65,6 @@ pub trait JSSTCommand<C> {
         valid
     }
 
-    fn refresh_needed(cfg: &CredentialConfigData) -> bool {
-        if !Self::is_credentials_valid(cfg) {
-            return true;
-        }
-        let c_time = get_epoch();
-        if cfg.expiration - c_time < 259200 {
-            true;
-        }
-        false
-    }
-
     fn login_to_vault(
         opts: &GlobalOpts,
         cfg: &CredentialConfigData,

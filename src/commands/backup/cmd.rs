@@ -1,5 +1,5 @@
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use tar::Builder;
 use aws_config::BehaviorVersion;
 use aws_config::meta::region::RegionProviderChain;
@@ -92,7 +92,7 @@ impl BackupCommand {
         match &cmd.cli.command {
             CliCommandEnum::Upload(c) => Self::match_upload(&cmd, &cfg, &c)?,
             CliCommandEnum::Download(c) => Self::download(&cmd, &cfg, &c)?,
-            CliCommandEnum::Decrypt => todo!()
+            CliCommandEnum::Decrypt(c) => Self::decrypt(&cmd, &c)?,
         }
         Ok(())
     }
@@ -225,6 +225,48 @@ impl BackupCommand {
         log::info!("Saving file to {:?}", &args.dest);
         let mut file = OpenOptions::new().create(true).write(true).open(&args.dest)?;
         file.write_all(&decrypted_tar)?;
+        Ok(())
+    }
+
+
+    fn decrypt(&self, args: &DecryptCommandArgs) -> GenericErr {
+        // Decrypt the vault data-key with transit key
+        print!("Vault Transit Key: ");
+        let vtk_raw: String = text_io::read!();
+        log::info!("Attempting to decrypt cipher {:?}", &args.cipher);
+        let vtk_bytes = BASE64_STANDARD.decode(vtk_raw)?;
+        let vtk_cipher = Aes256Gcm::new(&VaultDataKey::vec_to_key(&vtk_bytes)?);
+
+        let obj_dk_raw = VaultDataKey::decode_raw_cipher(&args.cipher)?;
+        let obj_iv = *NonceVal::from_slice(&obj_dk_raw.iv);
+        let obj_dk_plaintext = match vtk_cipher.decrypt(&obj_iv, obj_dk_raw.data.as_slice()) {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(format!("Failed to decrypt data key - {}", e).into())
+            }
+        };
+
+        // Decrypt object
+        log::info!("Attempting to decrypt file {:?}", &args.src);
+        let aes_nonce = *NonceVal::from_slice(&BASE64_STANDARD.decode(&args.nonce)?);
+        let obj_cipher = Aes256Gcm::new(
+            &VaultDataKey::vec_to_key(&obj_dk_plaintext)?
+        );
+        let mut obj = File::open(&args.src)?;
+        let obj_len = obj.metadata()?.len();
+        let mut obj_data: Vec<u8> = vec![0; obj_len as usize];
+        obj.read(&mut obj_data)?;
+        let obj_decrypted = match obj_cipher.decrypt(&aes_nonce, obj_data.as_slice()) {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(format!("Failed to decrypt object - {}", e).into())
+            }
+        };
+
+        // Write decrypted object to disk
+        log::info!("Saving file to {:?}", &args.dest);
+        let mut out_file = OpenOptions::new().create(true).write(true).open(&args.dest)?;
+        out_file.write_all(&obj_decrypted)?;
         Ok(())
     }
 }
