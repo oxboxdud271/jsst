@@ -23,13 +23,23 @@ struct DataKeyArgs {
     pub key_name: String
 }
 
+#[derive(Args)]
+struct GetSecretArgs {
+    /// Key of secret
+    #[arg(long)]
+    pub key: String
+}
+
 #[derive(Subcommand)]
 enum CliCommandEnum {
     /// Retrieve Vault Data Key
     DataKey(DataKeyArgs),
 
     /// Return a valid Vault token using system credentials
-    Login
+    Login,
+
+    /// Print any secret in Vault KV the machine has access to.
+    GetSecret(GetSecretArgs),
 }
 
 #[derive(Args)]
@@ -52,7 +62,8 @@ impl JSSTCommand<UtilityCommandStruct> for UtilityCommand {
             |cmd, cfg| {
                 Ok(match &cmd.commands.command {
                     CliCommandEnum::DataKey(a) => Self::get_data_key(cmd, a, cfg)?,
-                    CliCommandEnum::Login => Self::login(cmd, cfg)?
+                    CliCommandEnum::Login => Self::login(cmd, cfg)?,
+                    CliCommandEnum::GetSecret(a) => Self::get_secret(cmd, a, cfg)?
                 })
             }
         )?)
@@ -81,6 +92,13 @@ impl UtilityCommand {
                 println!("CIPHERTEXT={}", data_key.ciphertext);
             }
         }
+        Ok(())
+    }
+
+    fn get_secret(&self, args: &GetSecretArgs, cfg: &CredentialConfigData) -> GenericErr {
+        let client = Self::login_to_vault(&self.opts, &cfg)?;
+        let resp = client.get(&format!("/v1/secrets/data/{}", &args.key))?;
+        println!("{}", serde_json::to_string(&resp["data"]["data"])?);
         Ok(())
     }
 }
