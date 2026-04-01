@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use clap::{Args, Subcommand};
 use tar::Builder;
@@ -10,6 +10,10 @@ use aws_sdk_s3::operation::get_object::GetObjectOutput;
 use aws_sdk_s3::primitives::{ByteStream, SdkBody};
 use aes_gcm::{AeadCore, Aes256Gcm};
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
+use aes_gcm::aead::consts::U12;
+use aes_gcm::aead::generic_array::GenericArray;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use flate2::GzBuilder;
 use flate2::Compression;
 use crate::args::GlobalOpts;
@@ -18,6 +22,12 @@ use crate::commands::base::{CredentialConfigData, JSSTCommand};
 use crate::util::{GenericErr, BACKUP_BUCKET};
 use crate::data_key::VaultDataKey;
 
+type NonceVal = GenericArray<u8, U12>;
+
+struct FinishedTar {
+    data: Vec<u8>,
+    nonce: String,
+}
 
 #[derive(Subcommand)]
 pub enum BackupAreas {
@@ -39,7 +49,7 @@ pub struct DownloadCommandArgs {
     pub obj_ver: Option<String>,
 
     /// Destination
-    #[arg(long, default_value = ".")]
+    #[arg(long, default_value = "./output.tar.gz")]
     pub dest: String,
 }
 
@@ -52,7 +62,7 @@ pub struct UploadCommandArgs {
 
 #[derive(Subcommand)]
 pub enum CliCommandEnum {
-    /// Download, decompress, and decrypt archive. Does not extract!
+    /// Download and decrypt archive. Does not extract!
     Download(DownloadCommandArgs),
     /// Gather and upload data to S3
     Upload(UploadCommandArgs)
@@ -91,14 +101,15 @@ impl BackupCommand {
         S3Client::new(&config)
     }
 
-    async fn upload_data_to_s3(data: Vec<u8>, data_key: &str, key: &str, creds: &JdnAwsIamCredentials) -> Result<PutObjectOutput, S3Error> {
+    async fn upload_data_to_s3(data: FinishedTar, data_key: &str, key: &str, creds: &JdnAwsIamCredentials) -> Result<PutObjectOutput, S3Error> {
         log::info!("Uploading data to S3 - {}", key);
         let client = Self::build_s3_client(creds).await;
         let resp = client.put_object()
             .key(key)
             .bucket(BACKUP_BUCKET)
-            .body(ByteStream::new(SdkBody::from(data)))
+            .body(ByteStream::new(SdkBody::from(data.data)))
             .metadata("vault-data-key", data_key)
+            .metadata("aes-nonce-b64", data.nonce)
             .send()
             .await?;
         log::info!("Upload successful");
@@ -137,7 +148,7 @@ impl BackupCommand {
         Ok(())
     }
 
-    fn finish_tar(tar_data: Builder<&mut Vec<u8>>, data_key: &VaultDataKey) -> GenericErr<Vec<u8>> {
+    fn finish_tar(tar_data: Builder<&mut Vec<u8>>, data_key: &VaultDataKey) -> GenericErr<FinishedTar> {
         log::info!("Compressing archive");
         let mut gz = GzBuilder::new()
             .write(Vec::new(), Compression::default());
@@ -147,7 +158,10 @@ impl BackupCommand {
         let tar_data: &[u8] = &gz.finish()?;
         let cipher = Aes256Gcm::new(&data_key.to_aes_256_key()?);
         let encrypted_tar = cipher.encrypt(&nonce, tar_data).unwrap();
-        Ok(encrypted_tar)
+        Ok( FinishedTar {
+            data: encrypted_tar,
+            nonce: BASE64_STANDARD.encode(nonce)
+        })
     }
 
 
@@ -187,7 +201,7 @@ impl BackupCommand {
         let credentials = JdnAwsIamCredentials::new(
             &client, &cfg.machine_uuid, &self.opts.output, true
         )?;
-        let obj_key = format!("{}/jdn-var.tar.encrypted", cfg.machine_uuid);
+        let obj_key = format!("{}/jdn-var.tar.gz.encrypted", cfg.machine_uuid);
         let rt  = tokio::runtime::Runtime::new()?;
         let _ = rt.block_on(async {
             let resp = Self::upload_data_to_s3(
@@ -216,6 +230,44 @@ impl BackupCommand {
             log::debug!("S3 Retrieve Response - {:?}", resp);
             resp
         })?;
+        let resp_md = match resp.metadata {
+            Some(v) => v,
+            None => {
+                return Err("Object has no metadata".into())
+            }
+        };
+        let resp_body_collect = rt.block_on(async {
+            resp.body.collect().await
+        });
+        let resp_body = match resp_body_collect {
+            Ok(v) => v.to_vec(),
+            Err(e) => {
+                return Err(format!("Failed to read object body - {}", e).into())
+            }
+        };
+        let ciphertext = match resp_md.get("vault-data-key") {
+            Some(v) => v,
+            None => {
+                return Err("Object has no attached ciphertext".into())
+            }
+        };
+        let aes_nonce: NonceVal = match resp_md.get("aes-nonce-b64") {
+            Some(v) => {
+                *NonceVal::from_slice(&BASE64_STANDARD.decode(v)?)
+            },
+            None => {
+                return Err("Object has no attached nonce".into())
+            }
+        };
+        let data_key = VaultDataKey::from_cipher(&client, ciphertext, "jdn-host-backup")?;
+
+        // Decrypt file
+        let cipher = Aes256Gcm::new(&data_key.to_aes_256_key()?);
+        let decrypted_tar = cipher.decrypt(&aes_nonce, resp_body.as_slice()).unwrap();
+
+        log::info!("Saving file to {:?}", &args.dest);
+        let mut file = OpenOptions::new().create(true).write(true).open(&args.dest)?;
+        file.write_all(&decrypted_tar)?;
         Ok(())
     }
 }

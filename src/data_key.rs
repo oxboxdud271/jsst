@@ -42,4 +42,17 @@ impl VaultDataKey {
             None => Err("Invalid Data Key".into())
         }
     }
+
+    pub fn from_cipher(client: &VaultClient, cipher: &str, key: &str) -> GenericErr<Self> {
+        let resp = client.post(
+            &String::from(format!("/v1/transit/decrypt/{}", key)),
+            &json!({
+                "ciphertext": cipher
+            })
+        )?;
+        Ok(Self {
+            ciphertext: String::from(cipher),
+            plaintext: util::json_to_string(&resp["data"]["plaintext"])
+        })
+    }
 }

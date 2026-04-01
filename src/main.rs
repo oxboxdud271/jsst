@@ -73,7 +73,7 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(_) => ExitCode::SUCCESS,
         Err(e) => {
-            log::error!("{}", e);
+            log::error!("{:?}", e);
             ExitCode::FAILURE
         }
     }
