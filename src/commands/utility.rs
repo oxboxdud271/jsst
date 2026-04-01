@@ -32,10 +32,10 @@ struct GetSecretArgs {
 
 #[derive(Subcommand)]
 enum CliCommandEnum {
-    /// Retrieve Vault Data Key
+    /// Print a Vault data key
     DataKey(DataKeyArgs),
 
-    /// Return a valid Vault token using system credentials
+    /// Print a Vault auth token using system credentials
     Login,
 
     /// Print any secret in Vault KV the machine has access to.
