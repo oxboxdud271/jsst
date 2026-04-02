@@ -1,16 +1,33 @@
+use std::fs;
+use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::process::Command;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use clap::{Args, Subcommand};
 use rand::distr::{Alphanumeric, SampleString};
 use serde_json::json;
 use yescrypt::{Yescrypt, PasswordHasher};
 use crate::args::GlobalOpts;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
+use crate::data_key::VaultDataKey;
 use crate::util::GenericErr;
+
+
+#[derive(Args)]
+pub struct RotateArgs {
+    #[arg(long)]
+    skip_save: bool,
+}
+
 
 #[derive(Subcommand)]
 pub enum CliCommandEnum {
     /// Rotate Password
-    Rotate
+    Rotate(RotateArgs),
+
+    /// Decrypt Password offline
+    Decrypt
 }
 
 #[derive(Args)]
@@ -35,7 +52,8 @@ impl JSSTCommand<PasswdCommandStruct> for PasswdCommand {
             &cmd.opts,
             |cmd, cfg| {
                 match &cmd.cli.command {
-                    CliCommandEnum::Rotate => Self::rotate(cmd, cfg)
+                    CliCommandEnum::Rotate(a) => Self::rotate(cmd, a, cfg),
+                    CliCommandEnum::Decrypt => Self::decrypt(cmd),
                 }
             }
         )?)
@@ -43,7 +61,11 @@ impl JSSTCommand<PasswdCommandStruct> for PasswdCommand {
 }
 
 impl PasswdCommand {
-    fn rotate(&self, cfg: &CredentialConfigData) -> GenericErr {
+    fn pass_file_location(&self) -> PathBuf {
+        format!("{}passwd/{}", &self.opts.output, &self.cli.username).into()
+    }
+
+    fn rotate(&self, args: &RotateArgs, cfg: &CredentialConfigData) -> GenericErr {
         let client = Self::login_to_vault(&self.opts, &cfg)?;
         let yescrypt = Yescrypt::default();
 
@@ -79,7 +101,34 @@ impl PasswdCommand {
                 }
             })
         )?;
+        if !args.skip_save {
+            log::info!("Encrypting plaintext");
+            let resp = client.post(
+                &String::from("/v1/transit/encrypt/jdn-host-backup"),
+                &json!({
+                    "plaintext": BASE64_STANDARD.encode(&passwd)
+                })
+            )?;
+
+            let ciphertext = resp["data"]["ciphertext"].as_str().unwrap().as_bytes();
+            let mut file = Self::open_file(&self.pass_file_location())?;
+            file.write(ciphertext)?;
+        }
         log::info!("Password successfully uploaded");
+        Ok(())
+    }
+
+    fn decrypt(&self) -> GenericErr {
+        let file_path = self.pass_file_location();
+        log::info!("Reading file - {:?}", file_path);
+
+        let mut file = fs::File::open(&file_path)?;
+        let mut buffer = String::new();
+        file.read_to_string(&mut buffer)?;
+
+        log::info!("Decoding password data");
+        let plaintext = VaultDataKey::manually_decrypt_cipher(&buffer)?;
+        println!("{}", String::from_utf8(plaintext)?);
         Ok(())
     }
 }

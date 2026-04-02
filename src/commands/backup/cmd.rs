@@ -9,8 +9,6 @@ use aws_sdk_s3::operation::get_object::GetObjectOutput;
 use aws_sdk_s3::primitives::{ByteStream, SdkBody};
 use aes_gcm::{AeadCore, Aes256Gcm};
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
-use aes_gcm::aead::consts::U12;
-use aes_gcm::aead::generic_array::GenericArray;
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use flate2::GzBuilder;
@@ -19,11 +17,10 @@ use crate::args::GlobalOpts;
 use crate::iam_credentials::JdnAwsIamCredentials;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
 use crate::util::{GenericErr, BACKUP_BUCKET};
-use crate::data_key::VaultDataKey;
+use crate::data_key::{NonceVal, VaultDataKey};
 
 use crate::commands::backup::args::*;
 
-type NonceVal = GenericArray<u8, U12>;
 
 struct FinishedTar {
     data: Vec<u8>,
@@ -231,26 +228,14 @@ impl BackupCommand {
 
     fn decrypt(&self, args: &DecryptCommandArgs) -> GenericErr {
         // Decrypt the vault data-key with transit key
-        print!("Vault Transit Key: ");
-        let vtk_raw: String = text_io::read!();
         log::info!("Attempting to decrypt cipher {:?}", &args.cipher);
-        let vtk_bytes = BASE64_STANDARD.decode(vtk_raw)?;
-        let vtk_cipher = Aes256Gcm::new(&VaultDataKey::vec_to_key(&vtk_bytes)?);
-
-        let obj_dk_raw = VaultDataKey::decode_raw_cipher(&args.cipher)?;
-        let obj_iv = *NonceVal::from_slice(&obj_dk_raw.iv);
-        let obj_dk_plaintext = match vtk_cipher.decrypt(&obj_iv, obj_dk_raw.data.as_slice()) {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(format!("Failed to decrypt data key - {}", e).into())
-            }
-        };
+        let data_key_plaintext = VaultDataKey::manually_decrypt_cipher(&args.cipher)?;
 
         // Decrypt object
         log::info!("Attempting to decrypt file {:?}", &args.src);
         let aes_nonce = *NonceVal::from_slice(&BASE64_STANDARD.decode(&args.nonce)?);
         let obj_cipher = Aes256Gcm::new(
-            &VaultDataKey::vec_to_key(&obj_dk_plaintext)?
+            &VaultDataKey::vec_to_key(&data_key_plaintext)?
         );
         let mut obj = File::open(&args.src)?;
         let obj_len = obj.metadata()?.len();
