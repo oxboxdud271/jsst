@@ -15,3 +15,10 @@ pub fn get_epoch() -> u64 {
 pub fn json_to_string(json: &serde_json::Value) -> String {
     String::from(json.as_str().unwrap())
 }
+
+pub fn err_if_standalone(opt: &bool) -> GenericErr {
+    if *opt {
+        return Err("This command is not supported with --standalone (-S)".into());
+    }
+    Ok(())
+}

@@ -2,7 +2,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use serde_json::json;
 use crate::args::GlobalOpts;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
-use crate::util::GenericErr;
+use crate::util::{err_if_standalone, GenericErr};
 use crate::data_key::VaultDataKey;
 
 #[derive(Clone, ValueEnum)]
@@ -71,6 +71,7 @@ impl JSSTCommand<UtilityCommandStruct> for UtilityCommand {
 }
 impl UtilityCommand {
     fn login(&self, cfg: &CredentialConfigData) -> GenericErr {
+        err_if_standalone(&self.opts.standalone)?;
         let client = Self::login_to_vault(&self.opts, &cfg)?;
         println!("{}", client.token);
         Ok(())

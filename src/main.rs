@@ -56,16 +56,18 @@ fn main() -> ExitCode {
         }
     };
 
-    let output_dir = Path::new(&cli.global_opts.output);
-    if !output_dir.exists() {
-        log::info!("Output Directory does not exists. Creating..");
-        match fs::create_dir_all(output_dir) {
-            Ok(_) => {
-                log::info!("Output Directory Created.")
-            }
-            Err(e) => {
-                log::error!("Failed to create output directory: [{}]", e.to_string());
-                return ExitCode::FAILURE;
+    if !cli.global_opts.standalone {
+        let output_dir = Path::new(&cli.global_opts.output);
+        if !output_dir.exists() {
+            log::info!("Output Directory does not exists. Creating..");
+            match fs::create_dir_all(output_dir) {
+                Ok(_) => {
+                    log::info!("Output Directory Created.")
+                }
+                Err(e) => {
+                    log::error!("Failed to create output directory: [{}]", e.to_string());
+                    return ExitCode::FAILURE;
+                }
             }
         }
     }

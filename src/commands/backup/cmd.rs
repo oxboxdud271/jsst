@@ -16,7 +16,7 @@ use flate2::Compression;
 use crate::args::GlobalOpts;
 use crate::iam_credentials::JdnAwsIamCredentials;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
-use crate::util::{GenericErr, BACKUP_BUCKET};
+use crate::util::{err_if_standalone, GenericErr, BACKUP_BUCKET};
 use crate::data_key::{NonceVal, VaultDataKey};
 
 use crate::commands::backup::args::*;
@@ -120,6 +120,8 @@ impl BackupCommand {
 
 
     fn backup_jdn(&self, cfg: &CredentialConfigData) -> GenericErr {
+        err_if_standalone(&self.opts.standalone)?;
+
         // Get Data Key
         let client = Self::login_to_vault(&self.opts, &cfg)?;
         log::info!("Retrieving new encryption data key");
@@ -171,6 +173,7 @@ impl BackupCommand {
     }
 
     fn download(&self, cfg: &CredentialConfigData, args: &DownloadCommandArgs) -> GenericErr {
+        err_if_standalone(&self.opts.standalone)?;
         let client = Self::login_to_vault(&self.opts, &cfg)?;
         let creds = JdnAwsIamCredentials::new(
             &client, &cfg.machine_uuid, &self.opts.output, true

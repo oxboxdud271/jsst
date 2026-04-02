@@ -11,7 +11,7 @@ use yescrypt::{Yescrypt, PasswordHasher};
 use crate::args::GlobalOpts;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
 use crate::data_key::VaultDataKey;
-use crate::util::GenericErr;
+use crate::util::{err_if_standalone, GenericErr};
 
 
 #[derive(Args)]
@@ -66,6 +66,7 @@ impl PasswdCommand {
     }
 
     fn rotate(&self, args: &RotateArgs, cfg: &CredentialConfigData) -> GenericErr {
+        err_if_standalone(&self.opts.standalone)?;
         let client = Self::login_to_vault(&self.opts, &cfg)?;
         let yescrypt = Yescrypt::default();
 

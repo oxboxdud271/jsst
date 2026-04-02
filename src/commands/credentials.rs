@@ -1,6 +1,6 @@
 use crate::args::GlobalOpts;
 use crate::commands::base::{CredentialConfigData, JSSTCommand};
-use crate::util::{get_epoch, GenericErr};
+use crate::util::{err_if_standalone, get_epoch, GenericErr};
 use crate::vault::{VaultClient, VaultClientBuilder};
 use clap::{Args, Subcommand};
 use serde_json::json;
@@ -66,6 +66,7 @@ struct EntityInfo {
 
 impl JSSTCommand<CredentialsCommandStruct> for CredentialsCommand {
     fn execute(commands: CredentialsCommandStruct, opts: GlobalOpts) -> GenericErr {
+        err_if_standalone(&opts.standalone)?;
         let output_dir = Path::new(&opts.output);
         let config_path = output_dir.join("credentials.json");
         let token = opts.token.clone();

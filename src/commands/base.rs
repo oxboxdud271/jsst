@@ -103,11 +103,19 @@ pub trait JSSTCommand<C> {
     ) -> GenericErr {
         let mut jsst_path_buf = PathBuf::from(&opts.output);
         jsst_path_buf.push("credentials.json");
-        
-        let cfg = Self::read_config(&jsst_path_buf)?;
-        if !Self::is_credentials_valid(&cfg) {
-            return Err("Vault Credentials are invalid / expired. Re-run bootstrap.".into())
-        }
+
+        let cfg = match opts.standalone {
+            true => {
+                CredentialConfigData::default()
+            }
+            false => {
+                let cfg = Self::read_config(&jsst_path_buf)?;
+                if !Self::is_credentials_valid(&cfg) {
+                    return Err("Vault Credentials are invalid / expired. Re-run bootstrap.".into())
+                }
+                cfg
+            }
+        };
         matcher(cmd_self, &cfg)?;
         Ok(())
     }

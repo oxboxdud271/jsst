@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::util::{get_epoch, json_to_string, GenericErr};
+use crate::util::{err_if_standalone, get_epoch, json_to_string, GenericErr};
 
 #[derive(Args)]
 pub struct SetupArgs {
@@ -75,8 +75,8 @@ pub struct AWSCredentialData {
 
 
 impl JSSTCommand<AWSCommandStruct> for AWSCommand {
-    fn execute(commands: AWSCommandStruct, opts: GlobalOpts) -> GenericErr
-    {
+    fn execute(commands: AWSCommandStruct, opts: GlobalOpts) -> GenericErr {
+        err_if_standalone(&opts.standalone)?;
         match fs::create_dir_all(format!("{}/aws", opts.output)) {
             Ok(_) => {
                 log::debug!("Created AWS JSST sub directory")

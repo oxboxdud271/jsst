@@ -35,6 +35,10 @@ pub struct GlobalOpts {
     #[arg(short, long)]
     /// Provide a token. This will bypass the client auth process.
     pub token: Option<String>,
+
+    /// Allow unregistered hosts to run limited commands
+    #[arg(short = 'S', long)]
+    pub standalone: bool,
 }
 
 #[derive(Subcommand)]
