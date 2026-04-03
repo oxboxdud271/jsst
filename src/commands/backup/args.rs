@@ -27,7 +27,10 @@ pub struct DownloadCommandArgs {
 #[derive(Args)]
 pub struct UploadCommandArgs {
     #[command(subcommand)]
-    pub area: BackupAreas
+    pub area: BackupAreas,
+
+    #[arg(long)]
+    pub dir_override: Option<String>,
 }
 
 #[derive(Args)]

@@ -97,7 +97,7 @@ impl BackupCommand {
     fn match_upload(&self, cfg: &CredentialConfigData, args: &UploadCommandArgs) -> GenericErr {
         match args.area {
             BackupAreas::LUKS => {todo!()}
-            BackupAreas::JDN => {Self::backup_jdn(&self, &cfg)?}
+            BackupAreas::JDN => {Self::backup_jdn(&self, &args, &cfg)?}
         }
         Ok(())
     }
@@ -119,7 +119,7 @@ impl BackupCommand {
     }
 
 
-    fn backup_jdn(&self, cfg: &CredentialConfigData) -> GenericErr {
+    fn backup_jdn(&self, args: &UploadCommandArgs, cfg: &CredentialConfigData) -> GenericErr {
         err_if_standalone(&self.opts.standalone)?;
 
         // Get Data Key
@@ -128,10 +128,14 @@ impl BackupCommand {
         let data_key = VaultDataKey::retrieve_data_key(&client, "jdn-host-backup", &256)?;
 
         // Build ZIP File
-        log::info!("Adding [{}] to archive", &self.opts.output);
+        let dir = match &args.dir_override {
+            Some(dir) => dir.clone(),
+            None => self.opts.output.clone()
+        };
+        log::info!("Adding [{}] to archive", &dir);
         let mut mem_buf = Vec::new();
         let mut archive = Builder::new(&mut mem_buf);
-        for entry in walkdir::WalkDir::new(&self.opts.output) {
+        for entry in walkdir::WalkDir::new(&dir) {
             match entry {
                 Ok(e) => {
                     log::debug!("Archiving - {:?}", e.path());
@@ -139,7 +143,7 @@ impl BackupCommand {
                     if e_md.is_dir() {
                         continue
                     }
-                    let file_path = e.path().strip_prefix(&self.opts.output)?;
+                    let file_path = e.path().strip_prefix(&dir)?;
                     let mut e_file = File::open(e.path())?;
                     archive.append_file(file_path, &mut e_file)?;
                 },

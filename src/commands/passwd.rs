@@ -105,7 +105,7 @@ impl PasswdCommand {
         if !args.skip_save {
             log::info!("Encrypting plaintext");
             let resp = client.post(
-                &String::from("/v1/transit/encrypt/jdn-host-backup"),
+                &String::from("/v1/transit/encrypt/jdn-host-passwords"),
                 &json!({
                     "plaintext": BASE64_STANDARD.encode(&passwd)
                 })
