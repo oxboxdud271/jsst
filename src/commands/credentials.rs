@@ -315,26 +315,19 @@ impl CredentialsCommand {
 
     fn refresh(&self, force: bool) -> GenericErr {
         let c_time = get_epoch();
-        match Self::read_config(&self.config_path) {
-            Ok(c) => {
-                if !self.refresh_needed(&c) && !force {
-                    log::info!("Refresh not needed. Use --force to perform action anyway.");
-                    return Ok(())
-                }
-                let app_role_client = Self::login_to_vault(&self.opts, &c)?;
-                log::info!("Attempting Secret ID Refresh");
-                let sid = self.get_secret_id(&app_role_client, c.machine_uuid, &c.auth_mount)?;
-                let mut x = c;
-                x.secret_id_accessor = sid.accessor;
-                x.secret_id = sid.id;
-                x.expiration = c_time + sid.id_ttl;
-                self.write_config_to_disk(&x)?;
-            }
-            Err(e) => {
-                log::error!("Failed to read config: [{}]", e);
-                return Ok(())
-            }
+        let cfg = Self::read_config(&self.config_path)?;
+        if !self.refresh_needed(&cfg) && !force {
+            log::info!("Refresh not needed. Use --force to perform action anyway.");
+            return Ok(())
         }
+        let app_role_client = Self::login_to_vault(&self.opts, &cfg)?;
+        log::info!("Attempting Secret ID Refresh");
+        let sid = self.get_secret_id(&app_role_client, cfg.machine_uuid, &cfg.auth_mount)?;
+        let mut x = cfg;
+        x.secret_id_accessor = sid.accessor;
+        x.secret_id = sid.id;
+        x.expiration = c_time + sid.id_ttl;
+        self.write_config_to_disk(&x)?;
         Ok(())
     }
 

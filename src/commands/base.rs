@@ -28,6 +28,7 @@ pub trait JSSTCommand<C> {
     fn execute(commands: C, opts: GlobalOpts) -> GenericErr;
 
     fn read_config<T: DeserializeOwned>(path: &PathBuf) -> Result<T, Box<dyn Error>> {
+        log::info!("Reading data - {:?}", path);
         let file = fs::File::open(path)?;
         let reader = io::BufReader::new(file);
         let json = serde_json::from_reader(reader)?;
@@ -46,6 +47,7 @@ pub trait JSSTCommand<C> {
     }
 
     fn write_config<T: Serialize>(path: &PathBuf, cfg: &T) -> Result<(), Box<dyn Error>> {
+        log::info!("Writing data - {:?}", path);
         let file = Self::open_file(path)?;
         let json_string = serde_json::to_string_pretty(cfg)?;
         write!(&file, "{}", json_string)?;
