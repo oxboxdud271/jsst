@@ -62,7 +62,13 @@ impl JSSTCommand<PasswdCommandStruct> for PasswdCommand {
 
 impl PasswdCommand {
     fn pass_file_location(&self) -> PathBuf {
-        format!("{}passwd/{}", &self.opts.output, &self.cli.username).into()
+        let dir = format!("{}/passwd", &self.opts.output);
+        match fs::create_dir_all(&dir) {
+            Ok(_) => log::debug!("Created directory {}", &dir),
+            Err(e) => log::warn!("Could not create passwd directory ({:?})", e),
+        }
+
+        format!("{}/{}", &dir, &self.cli.username).into()
     }
 
     fn rotate(&self, args: &RotateArgs, cfg: &CredentialConfigData) -> GenericErr {
@@ -122,6 +128,7 @@ impl PasswdCommand {
     fn decrypt(&self) -> GenericErr {
         let file_path = self.pass_file_location();
         log::info!("Reading file - {:?}", file_path);
+
 
         let mut file = fs::File::open(&file_path)?;
         let mut buffer = String::new();
