@@ -83,7 +83,7 @@ impl JSSTCommand<CredentialsCommandStruct> for CredentialsCommand {
                 }
             },
             CliCommandEnum::Show => cmd.show(),
-            CliCommandEnum::Refresh(a) => cmd.refresh(a.force),
+            CliCommandEnum::Refresh(a) => cmd.refresh(a.force)?,
         }
         Ok(())
     }
@@ -313,40 +313,29 @@ impl CredentialsCommand {
         }
     }
 
-    fn refresh(&self, force: bool) {
+    fn refresh(&self, force: bool) -> GenericErr {
         let c_time = get_epoch();
         match Self::read_config(&self.config_path) {
             Ok(c) => {
                 if !self.refresh_needed(&c) && !force {
                     log::info!("Refresh not needed. Use --force to perform action anyway.");
-                    return;
+                    return Ok(())
                 }
-                let app_role_client = match Self::login_to_vault(&self.opts, &c) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        log::error!("{}", e);
-                        return;
-                    }
-                };
+                let app_role_client = Self::login_to_vault(&self.opts, &c)?;
                 log::info!("Attempting Secret ID Refresh");
-                match self.get_secret_id(&app_role_client, c.machine_uuid, &c.auth_mount) {
-                    Ok(s) => {
-                        let mut x = c;
-                        x.secret_id_accessor = s.accessor;
-                        x.secret_id = s.id;
-                        x.expiration = c_time + s.id_ttl;
-                    }
-                    Err(e) => {
-                        log::error!("Failed to generate new Secret ID: [{}]", e);
-                        return;
-                    }
-                }
+                let sid = self.get_secret_id(&app_role_client, c.machine_uuid, &c.auth_mount)?;
+                let mut x = c;
+                x.secret_id_accessor = sid.accessor;
+                x.secret_id = sid.id;
+                x.expiration = c_time + sid.id_ttl;
+                self.write_config_to_disk(&x)?;
             }
             Err(e) => {
                 log::error!("Failed to read config: [{}]", e);
-                return;
+                return Ok(())
             }
         }
+        Ok(())
     }
 
     fn show(&self) {
