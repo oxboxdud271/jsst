@@ -30,6 +30,16 @@ struct GetSecretArgs {
     pub key: String
 }
 
+
+#[derive(Args)]
+struct SaveSecretArgs {
+    #[arg(long)]
+    pub key: String,
+
+    #[arg(long)]
+    pub value: String
+}
+
 #[derive(Subcommand)]
 enum CliCommandEnum {
     /// Print a Vault data key
@@ -40,6 +50,9 @@ enum CliCommandEnum {
 
     /// Print any secret in Vault KV the machine has access to.
     GetSecret(GetSecretArgs),
+
+    /// Save any secret in Vault
+    SaveSecret(SaveSecretArgs)
 }
 
 #[derive(Args)]
@@ -63,7 +76,8 @@ impl JSSTCommand<UtilityCommandStruct> for UtilityCommand {
                 Ok(match &cmd.commands.command {
                     CliCommandEnum::DataKey(a) => Self::get_data_key(cmd, a, cfg)?,
                     CliCommandEnum::Login => Self::login(cmd, cfg)?,
-                    CliCommandEnum::GetSecret(a) => Self::get_secret(cmd, a, cfg)?
+                    CliCommandEnum::GetSecret(a) => Self::get_secret(cmd, a, cfg)?,
+                    CliCommandEnum::SaveSecret(a) => Self::save_secret(cmd, a, cfg)?,
                 })
             }
         )?)
@@ -100,6 +114,26 @@ impl UtilityCommand {
         let client = Self::login_to_vault(&self.opts, &cfg)?;
         let resp = client.get(&format!("/v1/secrets/data/{}", &args.key))?;
         println!("{}", serde_json::to_string(&resp["data"]["data"])?);
+        Ok(())
+    }
+
+    fn save_secret(&self, args: &SaveSecretArgs, cfg: &CredentialConfigData) -> GenericErr {
+        let client = Self::login_to_vault(&self.opts, &cfg)?;
+        let key_parts: Vec<&str> = args.key.split("/").collect();
+        match key_parts[0] {
+            "passwd" => { return Err("passwd is a reserved path".into()); },
+            "luks" => { return Err("luks is a reserved path".into()); },
+            _ => true
+        };
+        log::info!("Uploading secret - {}", &args.key);
+        client.post(
+            &format!("/v1/secrets/data/hosts/{}/{}", &cfg.machine_uuid, &args.key),
+            &json!({
+                "data": {
+                    "data": &args.value
+                }
+            })
+        )?;
         Ok(())
     }
 }
