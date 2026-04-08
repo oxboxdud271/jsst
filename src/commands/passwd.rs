@@ -24,19 +24,6 @@ pub struct RotateUserArgs {
 }
 
 #[derive(Args)]
-pub struct RotateLuksArgs {
-    #[arg(long, default_value = "/dev/sda3")]
-    device: String,
-
-    #[arg(long, default_value_t = 0)]
-    key_slot: u8,
-
-    #[arg(long)]
-    skip_save: bool,
-}
-
-
-#[derive(Args)]
 pub struct DecryptArgs {
     #[arg(long)]
     path: String,
@@ -47,9 +34,6 @@ pub struct DecryptArgs {
 pub enum CliCommandEnum {
     /// Rotate Password
     RotateUser(RotateUserArgs),
-
-    /// Rotate LUKS Password
-    RotateLUKS(RotateLuksArgs),
 
     /// Decrypt Password offline
     Decrypt(DecryptArgs),
@@ -89,7 +73,6 @@ impl JSSTCommand<PasswdCommandStruct> for PasswdCommand {
             |cmd, cfg| {
                 match &cmd.cli.command {
                     CliCommandEnum::RotateUser(a) => Self::rotate_user(cmd, a, cfg),
-                    CliCommandEnum::RotateLUKS(a) => Self::rotate_luks(cmd, a, cfg),
                     CliCommandEnum::Decrypt(a) => Self::decrypt(cmd, a),
                 }
             }
@@ -190,26 +173,6 @@ impl PasswdCommand {
             self.save_encrypted_data(&client, &new_pass, "jdn-host-passwords", &file_path)?;
         }
         log::info!("Password successfully uploaded");
-        Ok(())
-    }
-
-    fn rotate_luks(&self, args: &RotateLuksArgs, cfg: &CredentialConfigData) -> GenericErr {
-        err_if_standalone(&self.opts.standalone)?;
-        let client = Self::login_to_vault(&self.opts, &cfg)?;
-        let new_pass = Self::generate_random_string()?;
-
-        log::info!("Updating key slot {}", args.key_slot);
-        let secret_prefix = format!("/luks/{}/key-{}", &args.device, &args.key_slot);
-        self.upload_to_vault(&client, &new_pass, &cfg, &secret_prefix)?;
-
-        if !args.skip_save {
-            let dir = format!("{}/{}/{}", &self.opts.output, "luks", args.device);
-            let file_path = format!("{}/key-{}", &dir, &args.key_slot);
-            Self::create_dirs(&dir);
-
-            self.save_encrypted_data(&client, &new_pass, "jdn-host-luks", &file_path)?;
-        }
-        log::info!("LUKS Key successfully uploaded");
         Ok(())
     }
 

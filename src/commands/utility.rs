@@ -122,7 +122,6 @@ impl UtilityCommand {
         let key_parts: Vec<&str> = args.key.split("/").collect();
         match key_parts[0] {
             "passwd" => { return Err("passwd is a reserved path".into()); },
-            "luks" => { return Err("luks is a reserved path".into()); },
             _ => true
         };
         log::info!("Uploading secret - {}", &args.key);
