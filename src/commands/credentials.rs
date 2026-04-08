@@ -103,7 +103,9 @@ impl CredentialsCommand {
             &json!({
                 "role_name": machine_id.to_string(),
                 "bind_secret_id": true,
-                "secret_id_ttl": 1296000
+                "secret_id_ttl": 1296000,
+                "token_ttl": 3600,
+                "token_max_ttl": 21600
             }),
         )?;
         if app_role.get("error").is_some() {
